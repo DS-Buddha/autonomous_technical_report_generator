@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hybrid Agentic System - Technical Report Generator</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="title">
+                    <span class="robot-icon">🤖</span>
+                    Hybrid Agentic System
+                </h1>
+                <p class="subtitle">Autonomous Technical Report Generator</p>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Report Generator Form -->
+            <section class="card generator-section">
+                <h2 class="section-title">Generate New Report</h2>
+                <form id="reportForm" class="report-form">
+                    <div class="form-group">
+                        <label for="topic" class="form-label">Research Topic</label>
+                        <input
+                            type="text"
+                            id="topic"
+                            name="topic"
+                            class="form-input"
+                            placeholder="e.g., Transformer Architectures in NLP"
+                            required
+                        >
+                        <small class="form-help">Enter the topic you want to research and generate a report about</small>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="depth" class="form-label">Research Depth</label>
+                            <select id="depth" name="depth" class="form-select">
+                                <option value="basic">Basic</option>
+                                <option value="moderate">Moderate</option>
+                                <option value="comprehensive" selected>Comprehensive</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="maxIterations" class="form-label">Max Iterations</label>
+                            <input
+                                type="number"
+                                id="maxIterations"
+                                name="maxIterations"
+                                class="form-input"
+                                min="1"
+                                max="5"
+                                value="3"
+                            >
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="codeExamples" name="codeExamples" checked>
+                            <span>Include Code Examples</span>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="generateBtn">
+                        <span class="btn-text">Generate Report</span>
+                        <span class="btn-loader" style="display: none;">Generating...</span>
+                    </button>
+                </form>
+
+                <!-- Progress Section -->
+                <div id="progressSection" class="progress-section" style="display: none;">
+                    <div class="progress-header">
+                        <h3 class="progress-title">Generating Report...</h3>
+                        <p class="progress-topic" id="progressTopic"></p>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill" id="progressBarFill"></div>
+                    </div>
+                    <p class="progress-status" id="progressStatus">Initializing agents...</p>
+                </div>
+
+                <!-- Result Section -->
+                <div id="resultSection" class="result-section" style="display: none;">
+                    <div class="result-success">
+                        <span class="result-icon">✅</span>
+                        <div class="result-content">
+                            <h3 class="result-title">Report Generated Successfully!</h3>
+                            <p class="result-message" id="resultMessage"></p>
+                            <div class="result-actions">
+                                <button onclick="viewReport()" class="btn btn-secondary">View Report</button>
+                                <button onclick="resetForm()" class="btn btn-outline">Generate Another</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Section -->
+                <div id="errorSection" class="error-section" style="display: none;">
+                    <div class="error-content">
+                        <span class="error-icon">❌</span>
+                        <div>
+                            <h3 class="error-title">Generation Failed</h3>
+                            <p class="error-message" id="errorMessage"></p>
+                            <button onclick="resetForm()" class="btn btn-outline">Try Again</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Reports List -->
+            <section class="card reports-section">
+                <div class="section-header">
+                    <h2 class="section-title">Generated Reports</h2>
+                    <button onclick="loadReports()" class="btn btn-small btn-outline">
+                        <span>🔄</span> Refresh
+                    </button>
+                </div>
+
+                <div id="reportsList" class="reports-list">
+                    <div class="loading-state">Loading reports...</div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Built with Google GenAI, LangGraph, FAISS, arXiv, and Semantic Scholar</p>
+            <p>Architecture: Hybrid Supervisor + Swarm with Self-Reflection</p>
+        </footer>
+    </div>
+
+    <!-- Report Viewer Modal -->
+    <div id="reportModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle" class="modal-title">Report Viewer</h2>
+                <button onclick="closeModal()" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="reportContent" class="report-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="downloadCurrentReport()" class="btn btn-primary">Download</button>
+                <button onclick="closeModal()" class="btn btn-outline">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
