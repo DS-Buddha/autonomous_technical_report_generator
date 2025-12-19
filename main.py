@@ -115,7 +115,7 @@ For more information, see README.md
 
     # Display banner
     print("=" * 60)
-    print("🤖 Hybrid Agentic System for Technical Report Generation")
+    print("Hybrid Agentic System for Technical Report Generation")
     print("=" * 60)
     print(f"\nTopic: {args.topic}")
     print(f"Depth: {args.depth}")
@@ -135,7 +135,7 @@ For more information, see README.md
 
         # Success message
         print("\n" + "=" * 60)
-        print("✅ Report Generation Complete!")
+        print("Report Generation Complete!")
         print("=" * 60)
         print(f"\nReport saved to: {output_path}")
         print("\nYou can now:")
@@ -146,12 +146,12 @@ For more information, see README.md
         return 0
 
     except KeyboardInterrupt:
-        print("\n\n⚠️  Report generation interrupted by user")
+        print("\n\nReport generation interrupted by user")
         logger.warning("Process interrupted by user")
         return 130
 
     except Exception as e:
-        print(f"\n\n❌ Error: {e}")
+        print(f"\n\nError: {e}")
         logger.error(f"Fatal error: {e}", exc_info=True)
         print("\nPlease check:")
         print("  1. Your .env file has valid API keys")
