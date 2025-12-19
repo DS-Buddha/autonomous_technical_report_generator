@@ -13,13 +13,15 @@ from src.graph.nodes import (
     coder_node,
     tester_node,
     critic_node,
-    synthesizer_node
+    synthesizer_node,
+    research_failure_node
 )
 from src.graph.edges import (
     should_continue_research,
     should_test_code,
     should_revise,
-    route_after_planning
+    route_after_planning,
+    validate_research_quality
 )
 from src.utils.logger import get_logger
 
@@ -50,6 +52,7 @@ def create_workflow(with_checkpoints: bool = True):
     # Add nodes (each node is an agent)
     workflow.add_node("planner", planner_node)
     workflow.add_node("researcher", researcher_node)
+    workflow.add_node("research_failure_handler", research_failure_node)
     workflow.add_node("coder", coder_node)
     workflow.add_node("tester", tester_node)
     workflow.add_node("critic", critic_node)
@@ -63,10 +66,32 @@ def create_workflow(with_checkpoints: bool = True):
     # Planner → Researcher (always)
     workflow.add_edge("planner", "researcher")
 
-    # Researcher → Coder (conditional: may loop for more research)
-    # For simplicity, we'll go directly to coder
-    # In a full implementation, this could have a conditional edge
-    workflow.add_edge("researcher", "coder")
+    # Researcher → Validation (CRITICAL: prevent hallucinated reports)
+    workflow.add_conditional_edges(
+        "researcher",
+        validate_research_quality,
+        {
+            "research_approved": "coder",            # Sufficient research, proceed
+            "research_failed": "research_failure_handler"  # Insufficient, handle failure
+        }
+    )
+
+    # Research Failure Handler → Researcher (retry) or END (HITL required)
+    # The handler returns 'next_agent' in state to control routing
+    def route_after_failure(state: AgentState) -> str:
+        next_agent = state.get('next_agent', 'END')
+        if next_agent == 'researcher':
+            return 'retry'
+        return 'end'
+
+    workflow.add_conditional_edges(
+        "research_failure_handler",
+        route_after_failure,
+        {
+            "retry": "researcher",  # Retry with broader queries
+            "end": END             # HITL required, stop workflow
+        }
+    )
 
     # Coder → Tester (always)
     workflow.add_edge("coder", "tester")

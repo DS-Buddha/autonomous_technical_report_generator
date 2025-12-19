@@ -117,3 +117,58 @@ def route_after_planning(state: AgentState) -> str:
     subtasks = state.get('subtasks', [])
     logger.info(f"Plan created with {len(subtasks)} subtasks - routing to researcher")
     return "researcher"
+
+
+def validate_research_quality(state: AgentState) -> str:
+    """
+    Validate research meets minimum quality before proceeding.
+    Triggers HITL (Human-in-the-Loop) if insufficient.
+
+    This is a CRITICAL safety check to prevent hallucinated reports
+    when research APIs fail or return insufficient results.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        "research_approved" or "research_failed"
+    """
+    papers = state.get('research_papers', [])
+    findings = state.get('key_findings', [])
+
+    # Hard minimum thresholds
+    min_papers = 3  # Absolute minimum for credible research
+    min_findings = 2  # At least some insights extracted
+
+    # Check paper count
+    if len(papers) < min_papers:
+        logger.error(
+            f"INSUFFICIENT RESEARCH: Only {len(papers)} papers found "
+            f"(minimum {min_papers} required)"
+        )
+        return "research_failed"
+
+    # Check findings count
+    if len(findings) < min_findings:
+        logger.error(f"INSUFFICIENT FINDINGS: Only {len(findings)} extracted")
+        return "research_failed"
+
+    # Check that papers have sufficient detail (not just titles)
+    papers_with_abstracts = sum(
+        1 for p in papers
+        if p.get('abstract') and len(p['abstract']) > 100
+    )
+
+    if papers_with_abstracts < min_papers // 2:
+        logger.error(
+            f"Research papers lack sufficient detail: "
+            f"Only {papers_with_abstracts}/{len(papers)} have abstracts"
+        )
+        return "research_failed"
+
+    # All checks passed
+    logger.info(
+        f"Research quality validated: {len(papers)} papers, "
+        f"{len(findings)} findings, {papers_with_abstracts} with abstracts"
+    )
+    return "research_approved"

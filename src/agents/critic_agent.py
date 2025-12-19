@@ -26,6 +26,7 @@ class CriticAgent(BaseAgent):
     def run(self, state: Dict, **kwargs) -> Dict:
         """
         Evaluate overall quality of research, code, and outputs.
+        Enforces negative constraints to prevent approval of mediocre work.
 
         Args:
             state: Current workflow state with all outputs
@@ -33,7 +34,7 @@ class CriticAgent(BaseAgent):
         Returns:
             Dict with quality scores, feedback, and revision flag
         """
-        logger.info("Evaluating quality across all dimensions")
+        logger.info("Evaluating quality with critical mindset")
 
         # Define evaluation criteria
         criteria = ['accuracy', 'completeness', 'code_quality', 'clarity', 'executability']
@@ -43,15 +44,40 @@ class CriticAgent(BaseAgent):
 
         # Get evaluation
         evaluation = self.generate_json_response(prompt)
+        scores = evaluation.get('dimension_scores', {})
+        priority_issues = evaluation.get('priority_issues', [])
+
+        # ENFORCE: At least one dimension must need improvement
+        # Prevents "confirmation bias" where critic approves everything
+        all_scores_high = all(score >= 8.0 for score in scores.values())
+
+        if all_scores_high and len(priority_issues) == 0:
+            logger.warning("Critic approved without finding issues - forcing re-evaluation")
+
+            # Add prompt to be more critical
+            re_eval_prompt = f"""
+{prompt}
+
+CRITICAL: You scored everything 8.0+. Please re-evaluate and find:
+1. At least ONE concrete improvement opportunity
+2. At least ONE dimension that could score lower than 8.0
+3. Be MORE CRITICAL and identify subtle flaws
+
+This is your second evaluation - be more thorough and demanding.
+"""
+            evaluation = self.generate_json_response(re_eval_prompt)
+            scores = evaluation.get('dimension_scores', {})
+            priority_issues = evaluation.get('priority_issues', [])
+            logger.info("Re-evaluation complete after initial approval")
 
         # Calculate overall score
-        scores = evaluation.get('dimension_scores', {})
         overall_score = sum(scores.values()) / len(scores) if scores else 0.0
 
         # Determine if revision needed
         needs_revision = (
             overall_score < settings.min_quality_score or
-            any(score < 5.0 for score in scores.values())
+            any(score < 5.0 for score in scores.values()) or
+            len(priority_issues) > 2  # More than 2 priority issues = needs work
         )
 
         result = {
@@ -59,12 +85,22 @@ class CriticAgent(BaseAgent):
             'overall_score': overall_score,
             'feedback': evaluation.get('feedback', {}),
             'needs_revision': needs_revision,
-            'priority_issues': evaluation.get('priority_issues', [])
+            'priority_issues': priority_issues
         }
 
-        logger.info(f"Quality evaluation complete: {overall_score:.1f}/10.0")
+        # Log evaluation with details
+        logger.info(
+            f"Quality evaluation: {overall_score:.1f}/10.0, "
+            f"Revision needed: {needs_revision}, "
+            f"Priority issues: {len(priority_issues)}"
+        )
+
         if needs_revision:
-            logger.warning("Quality below threshold - revision needed")
+            logger.warning(
+                f"Quality below threshold. Issues: {', '.join(priority_issues[:3])}"
+            )
+        else:
+            logger.info("Quality approved - proceeding to synthesis")
 
         return result
 

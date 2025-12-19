@@ -41,6 +41,7 @@ class AgentState(TypedDict):
     research_papers: List[Dict[str, Any]]  # Retrieved papers with metadata
     key_findings: List[Dict[str, Any]]  # Extracted insights
     literature_summary: str  # Aggregated research summary
+    research_retry_count: int  # Number of research retry attempts
 
     # ============ CODE GENERATION PHASE ============
     code_specifications: List[Dict[str, Any]]  # Code requirements from plan
@@ -123,6 +124,7 @@ def create_initial_state(
         'research_papers': [],
         'key_findings': [],
         'literature_summary': '',
+        'research_retry_count': 0,
 
         # Code
         'code_specifications': [],

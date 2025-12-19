@@ -192,12 +192,19 @@ def critic_node(state: AgentState) -> Dict[str, Any]:
     overall_score = result.get('overall_score', 0.0)
     needs_revision = result.get('needs_revision', False)
 
+    # CRITICAL FIX: Increment iteration counter when revision is needed
+    iteration_count = state.get('iteration_count', 0)
+    if needs_revision:
+        iteration_count += 1
+        logger.warning(f"Revision needed. Iteration count: {iteration_count}/{state.get('max_iterations', 3)}")
+
     logger.info(f"Quality score: {overall_score:.1f}/10.0, Needs revision: {needs_revision}")
 
     return {
         'quality_scores': result.get('quality_scores', {}),
         'feedback': result.get('feedback', {}),
         'needs_revision': needs_revision,
+        'iteration_count': iteration_count,
         'messages': [{'role': 'critic', 'content': f"Quality score: {overall_score:.1f}/10.0"}],
         'status': 'critique_complete'
     }
@@ -238,3 +245,95 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
         'messages': [{'role': 'synthesizer', 'content': f"Generated report ({metadata.get('word_count', 0)} words)"}],
         'status': 'synthesis_complete'
     }
+
+
+def research_failure_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Handle research failure with fallback strategies.
+
+    Implements:
+    1. Retry with broader queries (up to 2 attempts)
+    2. Trigger human-in-the-loop (HITL) if retries exhausted
+    3. Log failure for monitoring/alerting
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        State updates with retry instructions or HITL flag
+    """
+    logger.warning("=== RESEARCH FAILURE HANDLER ===")
+
+    retry_count = state.get('research_retry_count', 0)
+    max_retries = 2
+
+    if retry_count < max_retries:
+        logger.warning(f"Research failed, retrying ({retry_count + 1}/{max_retries})")
+
+        # Broaden search queries by making them more general
+        original_queries = state.get('search_queries', [])
+        broader_queries = []
+
+        for query in original_queries:
+            # Remove restrictive operators
+            broader = query.replace(' AND ', ' OR ')
+            broader = broader.replace('"', '')  # Remove exact phrase matching
+            broader_queries.append(broader)
+
+            # Also add a very general version
+            topic_words = state['topic'].split()
+            if len(topic_words) > 2:
+                broader_queries.append(' '.join(topic_words[:2]))  # First 2 words only
+
+        logger.info(f"Retrying with {len(broader_queries)} broader queries")
+
+        return {
+            'search_queries': broader_queries,
+            'research_retry_count': retry_count + 1,
+            'status': 'retrying_research',
+            'messages': [{'role': 'system', 'content': f"Research retry {retry_count + 1}/{max_retries}"}],
+            'next_agent': 'researcher'
+        }
+    else:
+        # After max retries, require human intervention
+        logger.critical(
+            f"RESEARCH FAILURE: Insufficient papers after {max_retries} retries. "
+            f"Topic: {state['topic']}, Papers found: {len(state.get('research_papers', []))}"
+        )
+
+        # Generate failure report
+        failure_report = f"""# Report Generation Failed
+
+## Topic
+{state['topic']}
+
+## Failure Reason
+Insufficient research papers found after {max_retries} retry attempts.
+
+## Papers Found
+{len(state.get('research_papers', []))} papers (minimum 3 required)
+
+## Action Required
+1. Check if topic is too narrow or specialized
+2. Try alternative search terms
+3. Verify API access (arXiv, Semantic Scholar)
+4. Consider manual research supplement
+
+## System Status
+- Search queries attempted: {len(state.get('search_queries', []))}
+- Retry count: {retry_count}
+- Timestamp: {__import__('datetime').datetime.now().isoformat()}
+"""
+
+        return {
+            'status': 'research_failure_hitl_required',
+            'error': f'Insufficient research papers found after {max_retries} attempts',
+            'final_report': failure_report,
+            'report_metadata': {
+                'status': 'failed',
+                'failure_reason': 'insufficient_research',
+                'retry_count': retry_count,
+                'papers_found': len(state.get('research_papers', []))
+            },
+            'messages': [{'role': 'system', 'content': '⚠️ HITL Required: Research failure'}]
+        }
