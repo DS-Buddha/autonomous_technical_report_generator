@@ -37,6 +37,80 @@ class ResearchTools:
 
         logger.info("Research tools initialized")
 
+    def _clean_text(self, text: str) -> str:
+        """
+        Clean text data from APIs to prevent encoding issues.
+
+        Handles:
+        - Null bytes removal
+        - UTF-8 encoding issues
+        - Excessive whitespace
+        - Length truncation to prevent token overflow
+
+        Args:
+            text: Raw text from API
+
+        Returns:
+            Cleaned text safe for LLM processing
+        """
+        if not text:
+            return ""
+
+        # Remove null bytes (can crash parsers)
+        text = text.replace('\x00', '')
+
+        # Fix common encoding issues
+        try:
+            # Encode to UTF-8 and decode, replacing errors
+            text = text.encode('utf-8', errors='ignore').decode('utf-8')
+        except Exception as e:
+            logger.warning(f"Encoding cleanup failed: {e}")
+            return ""
+
+        # Remove excessive whitespace
+        text = ' '.join(text.split())
+
+        # Truncate extremely long text (prevents token overflow)
+        max_length = 5000
+        if len(text) > max_length:
+            text = text[:max_length] + "... [truncated]"
+            logger.debug(f"Truncated text from {len(text)} to {max_length} chars")
+
+        return text
+
+    def _validate_paper_data(self, paper: Dict) -> bool:
+        """
+        Validate paper has required fields and data quality.
+
+        Args:
+            paper: Paper metadata dict
+
+        Returns:
+            True if paper passes validation
+        """
+        required_fields = ['title', 'abstract', 'source']
+
+        # Check required fields exist
+        if not all(field in paper for field in required_fields):
+            logger.warning(f"Paper missing required fields: {paper.get('title', 'Unknown')}")
+            return False
+
+        # Check minimum content quality
+        if len(paper['title']) < 10:
+            logger.warning("Paper title too short")
+            return False
+
+        if len(paper['abstract']) < 50:
+            logger.warning("Paper abstract too short")
+            return False
+
+        # Check for suspicious patterns (escaped bytes)
+        if '\\x' in paper['abstract']:
+            logger.warning("Paper contains escaped bytes")
+            return False
+
+        return True
+
     @async_retry_with_exponential_backoff(
         max_retries=3,
         initial_delay=2.0,
@@ -72,17 +146,17 @@ class ResearchTools:
             for paper in self.arxiv_client.results(search):
                 results.append({
                     'source': 'arxiv',
-                    'title': paper.title,
-                    'authors': [author.name for author in paper.authors],
-                    'abstract': paper.summary,
+                    'title': self._clean_text(paper.title),
+                    'authors': [self._clean_text(author.name) for author in paper.authors],
+                    'abstract': self._clean_text(paper.summary),
                     'published': paper.published.isoformat() if paper.published else None,
                     'updated': paper.updated.isoformat() if paper.updated else None,
                     'arxiv_id': paper.entry_id,
                     'pdf_url': paper.pdf_url,
                     'categories': paper.categories,
                     'primary_category': paper.primary_category,
-                    'comment': paper.comment,
-                    'journal_ref': paper.journal_ref,
+                    'comment': self._clean_text(paper.comment) if paper.comment else None,
+                    'journal_ref': self._clean_text(paper.journal_ref) if paper.journal_ref else None,
                     'doi': paper.doi
                 })
         except Exception as e:
@@ -127,15 +201,15 @@ class ResearchTools:
             for paper in results:
                 papers.append({
                     'source': 'semantic_scholar',
-                    'title': paper.title if paper.title else 'No title',
-                    'authors': [a.name for a in paper.authors] if paper.authors else [],
-                    'abstract': paper.abstract if paper.abstract else 'No abstract available',
+                    'title': self._clean_text(paper.title) if paper.title else 'No title',
+                    'authors': [self._clean_text(a.name) for a in paper.authors] if paper.authors else [],
+                    'abstract': self._clean_text(paper.abstract) if paper.abstract else 'No abstract available',
                     'year': paper.year,
                     'citations': paper.citationCount if paper.citationCount else 0,
                     'influential_citations': paper.influentialCitationCount if hasattr(paper, 'influentialCitationCount') else 0,
                     'url': paper.url if paper.url else None,
                     's2_id': paper.paperId,
-                    'venue': paper.venue if paper.venue else 'Unknown',
+                    'venue': self._clean_text(paper.venue) if paper.venue else 'Unknown',
                     'publication_types': paper.publicationTypes if paper.publicationTypes else [],
                     'publication_date': paper.publicationDate if hasattr(paper, 'publicationDate') else None,
                     'external_ids': paper.externalIds if hasattr(paper, 'externalIds') else {}
@@ -307,22 +381,28 @@ class ResearchTools:
 
     def deduplicate_papers(self, papers: List[Dict]) -> List[Dict]:
         """
-        Remove duplicate papers based on title similarity.
+        Remove duplicate papers and validate data quality.
 
         Args:
             papers: List of paper metadata dicts
 
         Returns:
-            Deduplicated list of papers
+            Deduplicated list of validated papers
         """
+        # First validate all papers
+        valid_papers = [p for p in papers if self._validate_paper_data(p)]
+
+        logger.info(f"Validated {len(valid_papers)}/{len(papers)} papers")
+
+        # Then deduplicate
         seen_titles = set()
         unique_papers = []
 
-        for paper in papers:
+        for paper in valid_papers:
             title_normalized = paper['title'].lower().strip()
             if title_normalized not in seen_titles:
                 seen_titles.add(title_normalized)
                 unique_papers.append(paper)
 
-        logger.info(f"Deduplicated {len(papers)} papers to {len(unique_papers)} unique")
+        logger.info(f"Deduplicated to {len(unique_papers)} unique valid papers")
         return unique_papers

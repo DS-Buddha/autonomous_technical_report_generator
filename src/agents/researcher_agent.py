@@ -21,7 +21,8 @@ class ResearcherAgent(BaseAgent):
         super().__init__(
             name="Researcher",
             system_prompt=RESEARCHER_PROMPT,
-            temperature=0.5
+            temperature=0.5,
+            model_tier="fast"  # Simple summarization - use cheap model
         )
         self.tools = ResearchTools()
 

@@ -8,6 +8,29 @@ from langgraph.graph import add_messages
 import operator
 
 
+def bounded_memory_add(existing: List, new: List) -> List:
+    """
+    Custom reducer for memory_context that prevents unbounded growth.
+
+    Keeps only the last 50 entries to prevent context window bloat.
+    This is critical for production as memory can grow indefinitely
+    with operator.add, causing token costs to explode.
+
+    Args:
+        existing: Current memory entries
+        new: New entries to add
+
+    Returns:
+        Combined list limited to last 50 entries
+    """
+    combined = existing + new
+    max_entries = 50
+
+    if len(combined) > max_entries:
+        return combined[-max_entries:]
+    return combined
+
+
 class AgentState(TypedDict):
     """
     Shared state schema for the multi-agent workflow.
@@ -67,8 +90,8 @@ class AgentState(TypedDict):
     report_metadata: Dict[str, Any]  # Statistics and information
 
     # ============ SHARED MEMORY CONTEXT ============
-    # Use operator.add to accumulate memory references
-    memory_context: Annotated[List[Dict[str, Any]], operator.add]
+    # Use bounded_memory_add to prevent unbounded growth (max 50 entries)
+    memory_context: Annotated[List[Dict[str, Any]], bounded_memory_add]
 
     # Use add_messages for agent communication (handles deduplication)
     messages: Annotated[Sequence[Dict[str, str]], add_messages]

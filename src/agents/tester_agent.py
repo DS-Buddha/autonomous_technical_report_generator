@@ -20,7 +20,8 @@ class TesterAgent(BaseAgent):
         super().__init__(
             name="Tester",
             system_prompt=TESTER_PROMPT,
-            temperature=0.2
+            temperature=0.2,
+            model_tier="fast"  # Deterministic validation - use cheap model
         )
         self.tools = CodeTools()
 

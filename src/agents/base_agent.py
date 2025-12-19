@@ -31,6 +31,7 @@ class BaseAgent:
         system_prompt: str,
         model: Optional[str] = None,
         temperature: float = 0.7,
+        model_tier: str = "standard",
         **kwargs
     ):
         """
@@ -39,19 +40,56 @@ class BaseAgent:
         Args:
             name: Agent name
             system_prompt: System instruction for the agent
-            model: Model name (default from settings)
+            model: Model name (optional, overrides tier selection)
             temperature: Sampling temperature (0.0-1.0)
+            model_tier: Model tier for cost optimization
+                - "fast": Cheap, fast models for simple tasks (Flash)
+                - "standard": Balanced models for most tasks (Pro)
+                - "advanced": Best models for complex reasoning (Pro with high temp)
             **kwargs: Additional configuration
         """
         self.name = name
         self.system_prompt = system_prompt
-        self.model = model or settings.google_ai_model
         self.temperature = temperature
+        self.model_tier = model_tier
+
+        # Select model based on tier if not explicitly provided
+        if model:
+            self.model = model
+        else:
+            self.model = self._select_model_by_tier(model_tier)
 
         # Initialize Google GenAI client
         self.client = genai.Client(api_key=settings.google_api_key)
 
-        logger.info(f"Initialized {self.name} agent with model {self.model}")
+        logger.info(
+            f"Initialized {self.name} agent with model {self.model} "
+            f"(tier: {model_tier})"
+        )
+
+    def _select_model_by_tier(self, tier: str) -> str:
+        """
+        Select appropriate model based on complexity tier.
+
+        Model Costs (approximate per 1M tokens):
+        - Flash: ~$0.075 (input) / $0.30 (output) - 80% cheaper
+        - Pro:   ~$1.25 (input) / $5.00 (output) - Standard
+
+        Args:
+            tier: Complexity tier ("fast", "standard", "advanced")
+
+        Returns:
+            Model name
+        """
+        tier_models = {
+            "fast": "gemini-1.5-flash",      # Cheap, fast for simple tasks
+            "standard": "gemini-1.5-pro",    # Balanced for most tasks
+            "advanced": "gemini-1.5-pro"     # Best available (same as standard for now)
+        }
+
+        model = tier_models.get(tier, tier_models["standard"])
+        logger.debug(f"Selected {model} for tier '{tier}'")
+        return model
 
     @retry_with_exponential_backoff(
         max_retries=3,

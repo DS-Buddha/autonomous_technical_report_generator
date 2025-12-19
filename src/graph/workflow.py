@@ -14,7 +14,8 @@ from src.graph.nodes import (
     tester_node,
     critic_node,
     synthesizer_node,
-    research_failure_node
+    research_failure_node,
+    state_compression_node
 )
 from src.graph.edges import (
     should_continue_research,
@@ -56,6 +57,7 @@ def create_workflow(with_checkpoints: bool = True):
     workflow.add_node("coder", coder_node)
     workflow.add_node("tester", tester_node)
     workflow.add_node("critic", critic_node)
+    workflow.add_node("compress_state", state_compression_node)
     workflow.add_node("synthesizer", synthesizer_node)
 
     # Set entry point
@@ -106,14 +108,45 @@ def create_workflow(with_checkpoints: bool = True):
         }
     )
 
-    # Critic → multiple targets (conditional: based on quality assessment)
+    # Critic → Compression (if revision needed) or Synthesizer (if approved)
     workflow.add_conditional_edges(
         "critic",
         should_revise,
         {
-            "revise_research": "researcher",   # Research gaps identified
-            "revise_code": "coder",            # Code quality issues
-            "synthesize": "synthesizer"        # Quality approved
+            "revise_research": "compress_state",   # Compress before research revision
+            "revise_code": "compress_state",       # Compress before code revision
+            "synthesize": "synthesizer"            # Quality approved, no compression needed
+        }
+    )
+
+    # Compression → Route to appropriate revision agent
+    def route_after_compression(state: AgentState) -> str:
+        """Route to appropriate agent after compression based on feedback."""
+        feedback = state.get('feedback', {})
+        scores = state.get('quality_scores', {})
+
+        if not scores:
+            return "researcher"  # Default to research
+
+        # Find lowest scoring dimension
+        lowest_dimension = min(scores, key=scores.get)
+
+        # Route based on dimension
+        if lowest_dimension in ['accuracy', 'completeness']:
+            logger.info("Routing to research after compression")
+            return "research"
+        elif lowest_dimension in ['code_quality', 'executability']:
+            logger.info("Routing to code after compression")
+            return "code"
+        else:
+            return "research"  # Default
+
+    workflow.add_conditional_edges(
+        "compress_state",
+        route_after_compression,
+        {
+            "research": "researcher",
+            "code": "coder"
         }
     )
 
