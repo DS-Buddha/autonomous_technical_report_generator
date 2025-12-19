@@ -54,51 +54,97 @@ async function generateReport() {
 
         const data = await response.json();
 
-        // Since we're running synchronously now, we'll simulate progress
-        // In a real implementation, you'd poll for status
-        simulateProgress();
+        // Start polling for real job status instead of simulating
+        // The API returns immediately, generation happens in background
+        currentJobId = `${new Date().toISOString().split('T')[0].replace(/-/g, '')}_${Date.now()}_${topic.substring(0, 20).replace(/\s/g, '_')}`;
 
-        // Wait for completion (simplified - in production you'd poll the status endpoint)
-        setTimeout(async () => {
-            await checkCompletion(topic);
-        }, 60000); // Check after 1 minute
+        // Poll for completion with real status updates
+        pollForCompletion(topic)
 
     } catch (error) {
         console.error('Error:', error);
+
+        // Clear any active polling
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+        }
+
         showError(error.message);
         toggleForm(true);
     }
 }
 
-// Simulate progress (since actual progress tracking would require websockets or polling)
-function simulateProgress() {
+// Poll for completion with real status checking
+function pollForCompletion(topic) {
     const progressBar = document.getElementById('progressBarFill');
     const statusText = document.getElementById('progressStatus');
 
-    const steps = [
-        { progress: 10, status: 'Initializing agents...' },
-        { progress: 20, status: 'Planning research strategy...' },
-        { progress: 35, status: 'Searching academic papers...' },
-        { progress: 50, status: 'Analyzing research findings...' },
-        { progress: 65, status: 'Generating code examples...' },
-        { progress: 80, status: 'Validating and testing code...' },
-        { progress: 90, status: 'Synthesizing final report...' },
-        { progress: 95, status: 'Finalizing document...' }
+    let progress = 0;
+    let pollCount = 0;
+    const maxPolls = 60; // Max 5 minutes (60 * 5 seconds)
+
+    const statusMessages = [
+        'Initializing agents...',
+        'Planning research strategy...',
+        'Searching academic papers...',
+        'Analyzing research findings...',
+        'Generating code examples...',
+        'Validating and testing code...',
+        'Synthesizing final report...',
+        'Finalizing document...'
     ];
 
-    let currentStep = 0;
+    pollingInterval = setInterval(async () => {
+        pollCount++;
 
-    const updateProgress = () => {
-        if (currentStep < steps.length) {
-            const step = steps[currentStep];
-            progressBar.style.width = step.progress + '%';
-            statusText.textContent = step.status;
-            currentStep++;
-            setTimeout(updateProgress, 7000); // Update every 7 seconds
+        // Update progress incrementally
+        progress = Math.min(95, Math.floor((pollCount / maxPolls) * 95));
+        progressBar.style.width = progress + '%';
+
+        // Cycle through status messages
+        const messageIndex = Math.floor((pollCount / 5) % statusMessages.length);
+        statusText.textContent = statusMessages[messageIndex];
+
+        // Check if report actually exists by looking for new reports
+        try {
+            const response = await fetch('/api/reports');
+            const data = await response.json();
+
+            // Find the most recent report (created in last 2 minutes)
+            const twoMinutesAgo = Date.now() - (2 * 60 * 1000);
+            const recentReports = data.reports.filter(r => {
+                const modifiedTime = new Date(r.modified_at).getTime();
+                return modifiedTime > twoMinutesAgo;
+            });
+
+            // If we found a recent report, consider it completed
+            if (recentReports.length > 0) {
+                clearInterval(pollingInterval);
+                progressBar.style.width = '100%';
+                statusText.textContent = 'Report generated successfully!';
+
+                setTimeout(() => {
+                    hideAllSections();
+                    showSuccess(`Report for "${topic}" has been generated successfully!`);
+                    toggleForm(true);
+                    loadReports();
+                }, 1000);
+            }
+
+            // Timeout after max polls
+            if (pollCount >= maxPolls) {
+                clearInterval(pollingInterval);
+                showError('Report generation is taking longer than expected. Please check the reports list below.');
+                toggleForm(true);
+                loadReports();
+            }
+
+        } catch (error) {
+            console.error('Error checking completion:', error);
         }
-    };
 
-    updateProgress();
+    }, 5000); // Poll every 5 seconds
 }
 
 // Check for completion
@@ -176,10 +222,18 @@ function toggleForm(enabled) {
 
 // Reset form
 function resetForm() {
+    // Clear any active polling
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+
     hideAllSections();
     toggleForm(true);
     document.getElementById('reportForm').reset();
     document.getElementById('codeExamples').checked = true;
+    currentJobId = null;
+    currentReportPath = null;
 }
 
 // Load reports
