@@ -25,6 +25,8 @@ from src.graph.edges import (
     validate_research_quality
 )
 from src.utils.logger import get_logger
+from src.utils.progress_streamer import get_progress_streamer
+from src.utils.token_tracker import get_token_tracker
 
 logger = get_logger(__name__)
 
@@ -168,7 +170,8 @@ def run_workflow(
     topic: str,
     requirements: dict = None,
     max_iterations: int = 3,
-    stream_output: bool = True
+    stream_output: bool = True,
+    budget_limit_usd: float = None
 ):
     """
     Execute the complete workflow for a topic.
@@ -178,42 +181,87 @@ def run_workflow(
         requirements: Optional requirements dict
         max_iterations: Maximum reflection loop iterations
         stream_output: Print intermediate outputs
+        budget_limit_usd: Optional budget limit for token usage
 
     Returns:
         Final state with report
     """
     logger.info(f"Starting workflow for topic: {topic}")
 
-    # Create initial state
-    initial_state = create_initial_state(
-        topic=topic,
-        requirements=requirements,
-        max_iterations=max_iterations
-    )
+    # Initialize progress streamer and token tracker
+    streamer = get_progress_streamer(enable_console_output=stream_output)
+    tracker = get_token_tracker(budget_limit_usd=budget_limit_usd)
 
-    # Create workflow
-    app = create_workflow(with_checkpoints=False)
+    # Emit workflow start event
+    streamer.start_workflow(topic)
 
-    # Execute workflow
-    if stream_output:
-        # Stream mode: print each step
-        final_state = None
-        for step_output in app.stream(initial_state):
-            # step_output is a dict with node name as key
-            for node_name, node_output in step_output.items():
-                logger.info(f"Completed: {node_name}")
-                if 'messages' in node_output:
-                    for msg in node_output['messages']:
-                        logger.info(f"  {msg['role']}: {msg['content']}")
+    try:
+        # Create initial state
+        initial_state = create_initial_state(
+            topic=topic,
+            requirements=requirements,
+            max_iterations=max_iterations
+        )
 
-            final_state = node_output
+        # Create workflow
+        app = create_workflow(with_checkpoints=False)
 
-    else:
-        # Non-streaming mode: execute all at once
-        final_state = app.invoke(initial_state)
+        # Execute workflow
+        if stream_output:
+            # Stream mode: print each step
+            final_state = None
+            for step_output in app.stream(initial_state):
+                # step_output is a dict with node name as key
+                for node_name, node_output in step_output.items():
+                    logger.info(f"Completed: {node_name}")
+                    if 'messages' in node_output:
+                        for msg in node_output['messages']:
+                            logger.info(f"  {msg['role']}: {msg['content']}")
 
-    logger.info("Workflow completed successfully")
-    return final_state
+                final_state = node_output
+
+                # Check budget status after each step
+                if budget_limit_usd:
+                    current_cost = tracker.get_total_cost()
+                    streamer.budget_status(current_cost, budget_limit_usd)
+
+        else:
+            # Non-streaming mode: execute all at once
+            final_state = app.invoke(initial_state)
+
+        logger.info("Workflow completed successfully")
+
+        # Add token usage stats to final state
+        final_state['token_usage_stats'] = tracker.get_statistics()
+
+        # Emit workflow completion event
+        streamer.complete_workflow(result={
+            'report_path': final_state.get('report_metadata', {}).get('output_path'),
+            'total_cost_usd': tracker.get_total_cost(),
+            'total_tokens': tracker.get_total_tokens()
+        })
+
+        # Print token usage summary if streaming
+        if stream_output:
+            print("\n" + tracker.get_cost_breakdown_report())
+            print("\n" + "=" * 60)
+            print("PROGRESS SUMMARY")
+            print("=" * 60)
+            summary = streamer.get_summary()
+            print(f"Total events: {summary['total_events']}")
+            print(f"Agents executed: {', '.join(summary['agents_executed'])}")
+            if summary['workflow_duration_seconds']:
+                print(f"Duration: {summary['workflow_duration_seconds']:.1f}s")
+
+        return final_state
+
+    except Exception as e:
+        logger.error(f"Workflow failed: {e}", exc_info=True)
+
+        # Emit workflow failure event
+        streamer.fail_workflow(str(e))
+
+        raise
 
 
 # Export main functions

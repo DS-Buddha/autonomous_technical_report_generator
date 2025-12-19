@@ -10,6 +10,7 @@ from google.genai import types
 from src.config.settings import settings
 from src.utils.logger import get_logger
 from src.utils.retry import retry_with_exponential_backoff
+from src.utils.token_tracker import get_token_tracker
 
 logger = get_logger(__name__)
 
@@ -128,6 +129,19 @@ class BaseAgent:
                     **kwargs
                 )
             )
+
+            # Track token usage if available
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                try:
+                    tracker = get_token_tracker()
+                    tracker.track_usage(
+                        agent_name=self.name,
+                        model=self.model,
+                        prompt_tokens=response.usage_metadata.prompt_token_count or 0,
+                        completion_tokens=response.usage_metadata.candidates_token_count or 0
+                    )
+                except Exception as track_error:
+                    logger.warning(f"Failed to track token usage: {track_error}")
 
             if response.text:
                 logger.debug(f"{self.name} generated response ({len(response.text)} chars)")

@@ -13,8 +13,10 @@ from src.agents.synthesizer_agent import SynthesizerAgent
 from src.memory.memory_manager import MemoryManager
 from src.graph.state import AgentState
 from src.utils.logger import get_logger
+from src.utils.progress_streamer import get_progress_streamer, ProgressEventType
 
 logger = get_logger(__name__)
+streamer = get_progress_streamer()
 
 # Initialize agents (singleton pattern)
 planner = PlannerAgent()
@@ -37,11 +39,18 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
         State updates with plan, subtasks, dependencies
     """
     logger.info("=== PLANNER NODE ===")
+    streamer.start_agent("planner", "Breaking down task into subtasks")
 
-    result = planner.run(
-        topic=state['topic'],
-        requirements=state['requirements']
-    )
+    try:
+        result = planner.run(
+            topic=state['topic'],
+            requirements=state['requirements']
+        )
+
+        streamer.complete_agent("planner", f"Created {len(result.get('subtasks', []))} subtasks")
+    except Exception as e:
+        streamer.fail_agent("planner", str(e))
+        raise
 
     return {
         'plan': result.get('plan', {}),
@@ -73,12 +82,21 @@ def researcher_node(state: AgentState) -> Dict[str, Any]:
         # Generate default queries from topic
         queries = [state['topic']]
 
-    result = researcher.run(queries=queries)
+    streamer.start_agent("researcher", f"Searching {len(queries)} queries across arXiv and Semantic Scholar")
 
-    # Store findings in memory
-    findings = result.get('key_findings', [])
-    if findings:
-        memory.add_research_findings(findings)
+    try:
+        result = researcher.run(queries=queries)
+
+        # Store findings in memory
+        findings = result.get('key_findings', [])
+        if findings:
+            memory.add_research_findings(findings)
+
+        papers_count = len(result.get('research_papers', []))
+        streamer.complete_agent("researcher", f"Found {papers_count} papers with {len(findings)} key findings")
+    except Exception as e:
+        streamer.fail_agent("researcher", str(e))
+        raise
 
     return {
         'research_papers': result.get('research_papers', []),
@@ -119,16 +137,24 @@ def coder_node(state: AgentState) -> Dict[str, Any]:
         'literature_summary': state.get('literature_summary', '')
     }
 
-    result = coder.run(specifications=specifications, context=context)
+    streamer.start_agent("coder", f"Generating {len(specifications)} code implementations")
 
-    # Store code patterns in memory
-    code_blocks = result.get('generated_code', {})
-    if code_blocks:
-        memory.add_code_patterns([
-            {'id': k, 'code': v, 'description': spec.get('description', '')}
-            for k, v in code_blocks.items()
-            for spec in specifications if spec.get('id') == k
-        ])
+    try:
+        result = coder.run(specifications=specifications, context=context)
+
+        # Store code patterns in memory
+        code_blocks = result.get('generated_code', {})
+        if code_blocks:
+            memory.add_code_patterns([
+                {'id': k, 'code': v, 'description': spec.get('description', '')}
+                for k, v in code_blocks.items()
+                for spec in specifications if spec.get('id') == k
+            ])
+
+        streamer.complete_agent("coder", f"Generated {len(code_blocks)} code blocks")
+    except Exception as e:
+        streamer.fail_agent("coder", str(e))
+        raise
 
     return {
         'generated_code': code_blocks,
@@ -163,7 +189,17 @@ def tester_node(state: AgentState) -> Dict[str, Any]:
             'status': 'testing_skipped'
         }
 
-    result = tester.run(code_blocks=code_blocks)
+    streamer.start_agent("tester", f"Testing {len(code_blocks)} code blocks")
+
+    try:
+        result = tester.run(code_blocks=code_blocks)
+
+        coverage = result.get('test_coverage', 0.0)
+        passed_count = len(result.get('executable_code', {}))
+        streamer.complete_agent("tester", f"{passed_count}/{len(code_blocks)} blocks passed ({coverage:.1f}% coverage)")
+    except Exception as e:
+        streamer.fail_agent("tester", str(e))
+        raise
 
     return {
         'test_results': result.get('test_results', []),
@@ -186,19 +222,29 @@ def critic_node(state: AgentState) -> Dict[str, Any]:
         State updates with quality scores and feedback
     """
     logger.info("=== CRITIC NODE ===")
+    streamer.start_agent("critic", "Evaluating quality across 5 dimensions")
 
-    result = critic.run(state=state)
+    try:
+        result = critic.run(state=state)
 
-    overall_score = result.get('overall_score', 0.0)
-    needs_revision = result.get('needs_revision', False)
+        overall_score = result.get('overall_score', 0.0)
+        needs_revision = result.get('needs_revision', False)
 
-    # CRITICAL FIX: Increment iteration counter when revision is needed
-    iteration_count = state.get('iteration_count', 0)
-    if needs_revision:
-        iteration_count += 1
-        logger.warning(f"Revision needed. Iteration count: {iteration_count}/{state.get('max_iterations', 3)}")
+        # CRITICAL FIX: Increment iteration counter when revision is needed
+        iteration_count = state.get('iteration_count', 0)
+        if needs_revision:
+            iteration_count += 1
+            max_iterations = state.get('max_iterations', 3)
+            logger.warning(f"Revision needed. Iteration count: {iteration_count}/{max_iterations}")
+            streamer.iteration_increment(iteration_count, max_iterations)
 
-    logger.info(f"Quality score: {overall_score:.1f}/10.0, Needs revision: {needs_revision}")
+        logger.info(f"Quality score: {overall_score:.1f}/10.0, Needs revision: {needs_revision}")
+
+        status_msg = f"Score: {overall_score:.1f}/10 - {'Revision needed' if needs_revision else 'Approved'}"
+        streamer.complete_agent("critic", status_msg)
+    except Exception as e:
+        streamer.fail_agent("critic", str(e))
+        raise
 
     return {
         'quality_scores': result.get('quality_scores', {}),
@@ -221,23 +267,31 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
         State updates with final report and metadata
     """
     logger.info("=== SYNTHESIZER NODE ===")
+    streamer.start_agent("synthesizer", "Creating final markdown report")
 
-    result = synthesizer.run(state=state)
+    try:
+        result = synthesizer.run(state=state)
 
-    final_report = result.get('final_report', '')
-    metadata = result.get('report_metadata', {})
+        final_report = result.get('final_report', '')
+        metadata = result.get('report_metadata', {})
 
-    # Save report to file
-    from src.tools.file_tools import FileTools
-    file_tools = FileTools()
-    output_path = file_tools.save_markdown_report(
-        content=final_report,
-        topic=state['topic']
-    )
+        # Save report to file
+        from src.tools.file_tools import FileTools
+        file_tools = FileTools()
+        output_path = file_tools.save_markdown_report(
+            content=final_report,
+            topic=state['topic']
+        )
 
-    metadata['output_path'] = str(output_path)
+        metadata['output_path'] = str(output_path)
 
-    logger.info(f"Report generated: {output_path}")
+        logger.info(f"Report generated: {output_path}")
+
+        word_count = metadata.get('word_count', 0)
+        streamer.complete_agent("synthesizer", f"Report generated ({word_count} words) → {output_path}")
+    except Exception as e:
+        streamer.fail_agent("synthesizer", str(e))
+        raise
 
     return {
         'final_report': final_report,
