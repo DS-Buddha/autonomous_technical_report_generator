@@ -58,7 +58,7 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
         'dependencies': result.get('dependencies', {}),
         'search_queries': result.get('search_queries', []),
         'code_specifications': result.get('code_specifications', []),
-        'messages': [{'role': 'planner', 'content': f"Created plan with {len(result.get('subtasks', []))} subtasks"}],
+        'messages': [{'role': 'assistant', 'content': f"Planner: Created plan with {len(result.get('subtasks', []))} subtasks"}],
         'status': 'planning_complete'
     }
 
@@ -103,7 +103,7 @@ def researcher_node(state: AgentState) -> Dict[str, Any]:
         'key_findings': findings,
         'literature_summary': result.get('literature_summary', ''),
         'memory_context': [{'type': 'research', 'count': len(findings)}],
-        'messages': [{'role': 'researcher', 'content': f"Found {len(result.get('research_papers', []))} papers with {len(findings)} key findings"}],
+        'messages': [{'role': 'assistant', 'content': f"Researcher: Found {len(result.get('research_papers', []))} papers with {len(findings)} key findings"}],
         'status': 'research_complete'
     }
 
@@ -160,7 +160,7 @@ def coder_node(state: AgentState) -> Dict[str, Any]:
         'generated_code': code_blocks,
         'code_dependencies': result.get('code_dependencies', []),
         'memory_context': [{'type': 'code', 'count': len(code_blocks)}],
-        'messages': [{'role': 'coder', 'content': f"Generated {len(code_blocks)} code blocks"}],
+        'messages': [{'role': 'assistant', 'content': f"Coder: Generated {len(code_blocks)} code blocks"}],
         'status': 'coding_complete'
     }
 
@@ -206,7 +206,7 @@ def tester_node(state: AgentState) -> Dict[str, Any]:
         'validation_errors': result.get('validation_errors', []),
         'executable_code': result.get('executable_code', {}),
         'test_coverage': result.get('test_coverage', 0.0),
-        'messages': [{'role': 'tester', 'content': f"Tested {len(code_blocks)} blocks, {len(result.get('executable_code', {}))} passed ({result.get('test_coverage', 0):.1f}% coverage)"}],
+        'messages': [{'role': 'assistant', 'content': f"Tester: Tested {len(code_blocks)} blocks, {len(result.get('executable_code', {}))} passed ({result.get('test_coverage', 0):.1f}% coverage)"}],
         'status': 'testing_complete'
     }
 
@@ -251,7 +251,7 @@ def critic_node(state: AgentState) -> Dict[str, Any]:
         'feedback': result.get('feedback', {}),
         'needs_revision': needs_revision,
         'iteration_count': iteration_count,
-        'messages': [{'role': 'critic', 'content': f"Quality score: {overall_score:.1f}/10.0"}],
+        'messages': [{'role': 'assistant', 'content': f"Critic: Quality score: {overall_score:.1f}/10.0"}],
         'status': 'critique_complete'
     }
 
@@ -296,7 +296,7 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
     return {
         'final_report': final_report,
         'report_metadata': metadata,
-        'messages': [{'role': 'synthesizer', 'content': f"Generated report ({metadata.get('word_count', 0)} words)"}],
+        'messages': [{'role': 'assistant', 'content': f"Synthesizer: Generated report ({metadata.get('word_count', 0)} words)"}],
         'status': 'synthesis_complete'
     }
 

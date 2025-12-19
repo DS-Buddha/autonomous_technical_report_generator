@@ -83,9 +83,9 @@ class BaseAgent:
             Model name
         """
         tier_models = {
-            "fast": "gemini-1.5-flash",      # Cheap, fast for simple tasks
-            "standard": "gemini-1.5-pro",    # Balanced for most tasks
-            "advanced": "gemini-1.5-pro"     # Best available (same as standard for now)
+            "fast": "gemini-2.0-flash-exp",      # Fast experimental model
+            "standard": "gemini-2.0-flash-exp",  # Using same model for all tiers
+            "advanced": "gemini-2.0-flash-exp"   # Using same model for all tiers
         }
 
         model = tier_models.get(tier, tier_models["standard"])

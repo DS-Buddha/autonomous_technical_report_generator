@@ -74,6 +74,10 @@ class TokenTracker:
         'gemini-1.5-pro': {
             'prompt': 1.25,       # $1.25 per 1M prompt tokens
             'completion': 5.00    # $5.00 per 1M completion tokens
+        },
+        'gemini-2.0-flash-exp': {
+            'prompt': 0.0,        # Free during experimental period
+            'completion': 0.0     # Free during experimental period
         }
     }
 
