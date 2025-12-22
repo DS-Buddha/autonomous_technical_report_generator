@@ -93,3 +93,97 @@ Focus on:
             lines.append(f"{i}. {f['title']} ({f.get('year', 'n.d.')})")
             lines.append(f"   {f['abstract'][:200]}...")
         return '\n'.join(lines)
+
+    def run_cross_domain(self, cross_domain_queries: List[str], parallels: List[Dict], **kwargs) -> Dict:
+        """
+        Execute cross-domain literature search based on identified parallels.
+
+        Args:
+            cross_domain_queries: Search queries for cross-domain research
+            parallels: List of cross-domain parallels to annotate results
+
+        Returns:
+            Dict with cross-domain papers annotated by domain
+        """
+        logger.info(f"Conducting cross-domain research with {len(cross_domain_queries)} queries")
+
+        # Execute parallel searches
+        search_results = asyncio.run(
+            self.tools.parallel_search(cross_domain_queries, max_results_per_query=4)
+        )
+
+        # Combine all papers
+        all_papers = []
+        for query_papers in search_results['arxiv'].values():
+            all_papers.extend(query_papers)
+        for query_papers in search_results['semantic_scholar'].values():
+            all_papers.extend(query_papers)
+
+        # Deduplicate
+        unique_papers = self.tools.deduplicate_papers(all_papers)
+
+        # Annotate papers with domain and relevance
+        annotated_papers = self._annotate_cross_domain_papers(
+            unique_papers,
+            parallels,
+            cross_domain_queries
+        )
+
+        logger.info(f"Found {len(annotated_papers)} cross-domain papers")
+
+        return {
+            'cross_domain_papers': annotated_papers
+        }
+
+    def _annotate_cross_domain_papers(
+        self,
+        papers: List[Dict],
+        parallels: List[Dict],
+        queries: List[str]
+    ) -> List[Dict]:
+        """Annotate cross-domain papers with domain and relevance information."""
+
+        # Create mapping of domains from parallels
+        domain_keywords = {}
+        for parallel in parallels:
+            domain = parallel.get('domain', 'Other')
+            keywords = parallel.get('research_keywords', [])
+            if domain not in domain_keywords:
+                domain_keywords[domain] = []
+            domain_keywords[domain].extend(keywords)
+
+        # Annotate each paper
+        annotated = []
+        for paper in papers:
+            title = paper.get('title', '').lower()
+            abstract = paper.get('abstract', '').lower()
+
+            # Determine which domain this paper belongs to
+            best_domain = 'Other'
+            best_match_score = 0
+
+            for domain, keywords in domain_keywords.items():
+                match_score = sum(
+                    1 for kw in keywords
+                    if kw.lower() in title or kw.lower() in abstract
+                )
+                if match_score > best_match_score:
+                    best_match_score = match_score
+                    best_domain = domain
+
+            # Add domain annotation
+            paper['domain'] = best_domain
+            paper['relevance_score'] = best_match_score
+
+            # Add relevance note based on matching parallel
+            for parallel in parallels:
+                if parallel.get('domain') == best_domain:
+                    paper['relevance_note'] = f"Relates to {parallel.get('phenomenon', 'cross-domain concept')}"
+                    break
+
+            annotated.append(paper)
+
+        # Sort by relevance
+        annotated.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+
+        return annotated

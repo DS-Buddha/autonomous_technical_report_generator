@@ -2,11 +2,13 @@
 let currentReportPath = null;
 let currentJobId = null;
 let pollingInterval = null;
+let eventSource = null;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadReports();
     setupFormSubmission();
+    setupReportModeSelector();
 });
 
 // Setup form submission
@@ -18,12 +20,28 @@ function setupFormSubmission() {
     });
 }
 
+// Setup report mode selector
+function setupReportModeSelector() {
+    const reportModeSelect = document.getElementById('reportMode');
+    const modeDescription = document.getElementById('modeDescription');
+
+    const descriptions = {
+        'staff_ml_engineer': 'Production-focused mentoring on common mistakes, failure modes, and best practices',
+        'research_innovation': 'Generates TWO reports: (1) Cross-domain parallels from Neuroscience/Physics/Biology + novel ideas, (2) Deep implementation guide for publishable research'
+    };
+
+    reportModeSelect.addEventListener('change', (e) => {
+        modeDescription.textContent = descriptions[e.target.value];
+    });
+}
+
 // Generate report
 async function generateReport() {
     const topic = document.getElementById('topic').value;
     const depth = document.getElementById('depth').value;
     const maxIterations = parseInt(document.getElementById('maxIterations').value);
     const codeExamples = document.getElementById('codeExamples').checked;
+    const reportMode = document.getElementById('reportMode').value;
 
     // Hide previous results
     hideAllSections();
@@ -33,6 +51,15 @@ async function generateReport() {
 
     // Disable form
     toggleForm(false);
+
+    // Clear previous progress log
+    const progressLog = document.getElementById('progressLog');
+    if (progressLog) {
+        progressLog.innerHTML = '';
+    }
+
+    // Connect to SSE for real-time updates
+    connectToProgressStream();
 
     try {
         const response = await fetch('/api/generate', {
@@ -44,7 +71,8 @@ async function generateReport() {
                 topic,
                 depth,
                 code_examples: codeExamples,
-                max_iterations: maxIterations
+                max_iterations: maxIterations,
+                report_mode: reportMode
             })
         });
 
@@ -75,6 +103,188 @@ async function generateReport() {
     }
 }
 
+// Connect to SSE progress stream
+function connectToProgressStream() {
+    // Disconnect any existing connection
+    disconnectProgressStream();
+
+    // Create new EventSource connection
+    eventSource = new EventSource('/api/progress-stream');
+
+    eventSource.onmessage = function(event) {
+        try {
+            const progressEvent = JSON.parse(event.data);
+            handleProgressEvent(progressEvent);
+        } catch (e) {
+            console.error('Failed to parse progress event:', e);
+        }
+    };
+
+    eventSource.onerror = function(error) {
+        console.error('SSE error:', error);
+        // Will automatically reconnect
+    };
+
+    console.log('Connected to progress stream');
+}
+
+// Disconnect from SSE progress stream
+function disconnectProgressStream() {
+    if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+        console.log('Disconnected from progress stream');
+    }
+}
+
+// Handle incoming progress events
+function handleProgressEvent(event) {
+    const progressLog = document.getElementById('progressLog');
+    if (!progressLog) return;
+
+    const timestamp = new Date(event.timestamp * 1000).toLocaleTimeString();
+    const eventType = event.event_type;
+    const agentName = event.agent_name || '';
+    const message = event.message || '';
+
+    // Handle phase events specially with visual separator
+    if (eventType === 'phase_started') {
+        const phaseSeparator = document.createElement('div');
+        phaseSeparator.className = 'phase-separator';
+        phaseSeparator.innerHTML = `
+            <div class="phase-separator-line"></div>
+            <div class="phase-separator-content">
+                <span class="phase-icon">🔬</span>
+                <span class="phase-title">${message}</span>
+            </div>
+            <div class="phase-separator-line"></div>
+        `;
+        progressLog.appendChild(phaseSeparator);
+        progressLog.scrollTop = progressLog.scrollHeight;
+        return;
+    }
+
+    if (eventType === 'phase_completed') {
+        const phaseComplete = document.createElement('div');
+        phaseComplete.className = 'phase-complete';
+        phaseComplete.innerHTML = `
+            <span class="phase-complete-icon">✨</span>
+            <span class="phase-complete-text">${message}</span>
+        `;
+        progressLog.appendChild(phaseComplete);
+        progressLog.scrollTop = progressLog.scrollHeight;
+        return;
+    }
+
+    // Create log entry
+    const logEntry = document.createElement('div');
+    logEntry.className = 'progress-log-entry';
+
+    // Add icon based on event type
+    let icon = '';
+    let colorClass = '';
+
+    if (eventType.includes('started')) {
+        icon = '▶️';
+        colorClass = 'event-started';
+    } else if (eventType.includes('completed')) {
+        icon = '✅';
+        colorClass = 'event-completed';
+    } else if (eventType.includes('failed')) {
+        icon = '❌';
+        colorClass = 'event-failed';
+    } else if (eventType.includes('warning')) {
+        icon = '⚠️';
+        colorClass = 'event-warning';
+    } else {
+        icon = '📝';
+        colorClass = 'event-info';
+    }
+
+    logEntry.className += ` ${colorClass}`;
+
+    // Format message
+    let displayText = '';
+    if (agentName) {
+        displayText = `${icon} [${agentName.toUpperCase()}] ${message}`;
+    } else {
+        displayText = `${icon} ${message}`;
+    }
+
+    logEntry.innerHTML = `
+        <span class="log-timestamp">${timestamp}</span>
+        <span class="log-message">${displayText}</span>
+    `;
+
+    progressLog.appendChild(logEntry);
+
+    // Auto-scroll to bottom
+    progressLog.scrollTop = progressLog.scrollHeight;
+
+    // Also update the status text with current agent
+    if (eventType === 'agent_started') {
+        const statusText = document.getElementById('progressStatus');
+        if (statusText) {
+            statusText.textContent = message;
+        }
+    }
+
+    // Handle workflow completion
+    if (eventType === 'workflow_completed') {
+        handleWorkflowComplete(event);
+    } else if (eventType === 'workflow_failed') {
+        handleWorkflowFailed(event);
+    }
+}
+
+// Handle workflow completion
+function handleWorkflowComplete(event) {
+    // Clear polling
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+
+    // Disconnect SSE
+    disconnectProgressStream();
+
+    // Update progress bar to 100%
+    const progressBar = document.getElementById('progressBarFill');
+    if (progressBar) {
+        progressBar.style.width = '100%';
+    }
+
+    const statusText = document.getElementById('progressStatus');
+    if (statusText) {
+        statusText.textContent = 'Report generated successfully!';
+    }
+
+    // Wait a moment then show success
+    setTimeout(() => {
+        const topic = document.getElementById('progressTopic').textContent;
+        hideAllSections();
+        showSuccess(`Report for "${topic}" has been generated successfully!`);
+        toggleForm(true);
+        loadReports();
+    }, 1000);
+}
+
+// Handle workflow failure
+function handleWorkflowFailed(event) {
+    // Clear polling
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+
+    // Disconnect SSE
+    disconnectProgressStream();
+
+    const errorMsg = event.metadata?.error || 'Unknown error occurred';
+    showError(`Report generation failed: ${errorMsg}`);
+    toggleForm(true);
+}
+
 // Poll for completion with real status checking
 function pollForCompletion(topic) {
     const progressBar = document.getElementById('progressBarFill');
@@ -82,7 +292,7 @@ function pollForCompletion(topic) {
 
     let progress = 0;
     let pollCount = 0;
-    const maxPolls = 60; // Max 5 minutes (60 * 5 seconds)
+    const maxPolls = 300; // Max 25 minutes (300 * 5 seconds) - reports can take time!
 
     const statusMessages = [
         'Initializing agents...',
@@ -227,6 +437,9 @@ function resetForm() {
         clearInterval(pollingInterval);
         pollingInterval = null;
     }
+
+    // Disconnect SSE
+    disconnectProgressStream();
 
     hideAllSections();
     toggleForm(true);

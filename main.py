@@ -19,7 +19,8 @@ def generate_report(
     topic: str,
     depth: str = 'comprehensive',
     code_examples: bool = True,
-    max_iterations: int = 3
+    max_iterations: int = 3,
+    report_mode: str = 'staff_ml_engineer'
 ) -> Path:
     """
     Generate a technical report for the given topic.
@@ -29,17 +30,19 @@ def generate_report(
         depth: Depth of research ('basic', 'moderate', 'comprehensive')
         code_examples: Whether to include code examples
         max_iterations: Maximum reflection loop iterations
+        report_mode: Report mode ('staff_ml_engineer', 'research_innovation')
 
     Returns:
         Path to generated report
     """
     logger.info(f"Starting report generation for topic: {topic}")
-    logger.info(f"Settings: depth={depth}, code_examples={code_examples}, max_iterations={max_iterations}")
+    logger.info(f"Settings: depth={depth}, code_examples={code_examples}, max_iterations={max_iterations}, mode={report_mode}")
 
     # Build requirements
     requirements = {
         'depth': depth,
-        'code_examples': code_examples
+        'code_examples': code_examples,
+        'report_mode': report_mode
     }
 
     try:

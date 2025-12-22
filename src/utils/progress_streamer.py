@@ -38,6 +38,9 @@ class ProgressEventType(Enum):
     COMPRESSION_STARTED = "compression_started"
     COMPRESSION_COMPLETED = "compression_completed"
 
+    PHASE_STARTED = "phase_started"
+    PHASE_COMPLETED = "phase_completed"
+
     ITERATION_INCREMENT = "iteration_increment"
     BUDGET_WARNING = "budget_warning"
     BUDGET_EXCEEDED = "budget_exceeded"
@@ -202,6 +205,8 @@ class ProgressStreamer:
             ProgressEventType.AGENT_COMPLETED: "\033[92m",       # Green
             ProgressEventType.AGENT_FAILED: "\033[91m",          # Red
             ProgressEventType.VALIDATION_FAILED: "\033[93m",     # Yellow
+            ProgressEventType.PHASE_STARTED: "\033[95m",         # Magenta (bright)
+            ProgressEventType.PHASE_COMPLETED: "\033[92m",       # Green
             ProgressEventType.BUDGET_WARNING: "\033[93m",        # Yellow
             ProgressEventType.BUDGET_EXCEEDED: "\033[91m",       # Red
         }
@@ -376,6 +381,34 @@ class ProgressStreamer:
             ProgressEventType.CUSTOM_STATUS,
             message=message,
             metadata=metadata or {}
+        )
+
+    def start_phase(self, phase_name: str, description: str = "") -> None:
+        """
+        Signal start of a new workflow phase.
+
+        Args:
+            phase_name: Name of the phase
+            description: Optional phase description
+        """
+        self.emit(
+            ProgressEventType.PHASE_STARTED,
+            message=f"Starting {phase_name}",
+            metadata={'phase_name': phase_name, 'description': description}
+        )
+
+    def complete_phase(self, phase_name: str, summary: str = "") -> None:
+        """
+        Signal completion of a workflow phase.
+
+        Args:
+            phase_name: Name of the phase
+            summary: Optional result summary
+        """
+        self.emit(
+            ProgressEventType.PHASE_COMPLETED,
+            message=f"Completed {phase_name}",
+            metadata={'phase_name': phase_name, 'summary': summary}
         )
 
     def get_history(self) -> List[ProgressEvent]:

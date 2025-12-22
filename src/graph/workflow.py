@@ -15,7 +15,13 @@ from src.graph.nodes import (
     critic_node,
     synthesizer_node,
     research_failure_node,
-    state_compression_node
+    state_compression_node,
+    cross_domain_analyst_node,
+    cross_domain_researcher_node,
+    innovation_synthesizer_node,
+    implementation_researcher_node,
+    implementation_literature_node,
+    implementation_synthesizer_node
 )
 from src.graph.edges import (
     should_continue_research,
@@ -33,13 +39,24 @@ logger = get_logger(__name__)
 
 def create_workflow(with_checkpoints: bool = True):
     """
-    Create the complete LangGraph workflow.
+    Create the complete LangGraph workflow with dual modes.
 
-    Workflow structure:
+    STANDARD MODE (staff_ml_engineer):
     START → Planner → Researcher → Coder → Tester → Critic → Synthesizer → END
                          ↑            ↑        ↓        ↓
                          └────────────┴────────┴────────┘
                               (reflection loops)
+
+    INNOVATION MODE (research_innovation):
+    START → Planner → Researcher (Domain) → CrossDomainAnalyst → CrossDomainResearcher
+            → InnovationSynthesizer → ImplementationResearcher → ImplementationLiterature
+            → ImplementationSynthesizer → END
+                ↑
+                └────────(retry on failure)
+
+    Innovation mode generates TWO reports:
+    1. Innovation Report: Cross-domain parallels and novel research directions
+    2. Implementation Report: Deep dive on how to implement each experiment publishably
 
     Args:
         with_checkpoints: Enable state persistence (default: True)
@@ -62,6 +79,16 @@ def create_workflow(with_checkpoints: bool = True):
     workflow.add_node("compress_state", state_compression_node)
     workflow.add_node("synthesizer", synthesizer_node)
 
+    # Innovation mode nodes
+    workflow.add_node("cross_domain_analyst", cross_domain_analyst_node)
+    workflow.add_node("cross_domain_researcher", cross_domain_researcher_node)
+    workflow.add_node("innovation_synthesizer", innovation_synthesizer_node)
+
+    # Implementation research nodes (Phase 2 of innovation mode)
+    workflow.add_node("implementation_researcher", implementation_researcher_node)
+    workflow.add_node("implementation_literature", implementation_literature_node)
+    workflow.add_node("implementation_synthesizer", implementation_synthesizer_node)
+
     # Set entry point
     workflow.set_entry_point("planner")
 
@@ -71,12 +98,30 @@ def create_workflow(with_checkpoints: bool = True):
     workflow.add_edge("planner", "researcher")
 
     # Researcher → Validation (CRITICAL: prevent hallucinated reports)
+    def route_after_research_validation(state: AgentState) -> str:
+        """Route after research validation based on quality and report mode."""
+        quality_result = validate_research_quality(state)
+
+        if quality_result == "research_failed":
+            return "research_failed"
+
+        # Research approved - check report mode
+        report_mode = state.get('report_mode', 'staff_ml_engineer')
+
+        if report_mode == 'research_innovation':
+            # Innovation mode: go to cross-domain analysis
+            return "innovation_path"
+        else:
+            # Standard mode: go to coder
+            return "standard_path"
+
     workflow.add_conditional_edges(
         "researcher",
-        validate_research_quality,
+        route_after_research_validation,
         {
-            "research_approved": "coder",            # Sufficient research, proceed
-            "research_failed": "research_failure_handler"  # Insufficient, handle failure
+            "standard_path": "coder",            # Standard mode: proceed to coding
+            "innovation_path": "cross_domain_analyst",  # Innovation mode: analyze cross-domain parallels
+            "research_failed": "research_failure_handler"  # Insufficient research
         }
     )
 
@@ -154,6 +199,25 @@ def create_workflow(with_checkpoints: bool = True):
 
     # Synthesizer → END (always)
     workflow.add_edge("synthesizer", END)
+
+    # ============ INNOVATION MODE WORKFLOW ============
+    # Cross-Domain Analyst → Cross-Domain Researcher (always)
+    workflow.add_edge("cross_domain_analyst", "cross_domain_researcher")
+
+    # Cross-Domain Researcher → Innovation Synthesizer (always)
+    workflow.add_edge("cross_domain_researcher", "innovation_synthesizer")
+
+    # Innovation Synthesizer → Implementation Researcher (Phase 2: Deep implementation research)
+    workflow.add_edge("innovation_synthesizer", "implementation_researcher")
+
+    # Implementation Researcher → Implementation Literature (always)
+    workflow.add_edge("implementation_researcher", "implementation_literature")
+
+    # Implementation Literature → Implementation Synthesizer (always)
+    workflow.add_edge("implementation_literature", "implementation_synthesizer")
+
+    # Implementation Synthesizer → END (final)
+    workflow.add_edge("implementation_synthesizer", END)
 
     # Add checkpointer for state persistence
     if with_checkpoints:

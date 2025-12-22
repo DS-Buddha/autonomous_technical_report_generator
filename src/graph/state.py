@@ -52,6 +52,7 @@ class AgentState(TypedDict):
     # ============ INPUT ============
     topic: str  # User's research topic
     requirements: Dict[str, Any]  # Specific requirements (depth, code_examples, etc.)
+    report_mode: str  # Report mode (staff_ml_engineer, research_innovation)
 
     # ============ PLANNING PHASE ============
     plan: Dict[str, Any]  # Hierarchical task structure
@@ -65,6 +66,18 @@ class AgentState(TypedDict):
     key_findings: List[Dict[str, Any]]  # Extracted insights
     literature_summary: str  # Aggregated research summary
     research_retry_count: int  # Number of research retry attempts
+
+    # ============ CROSS-DOMAIN RESEARCH (Innovation Mode) ============
+    cross_domain_analysis: Dict[str, Any]  # Cross-domain parallels and core principles
+    cross_domain_search_queries: List[str]  # Search queries for cross-domain research
+    cross_domain_papers: List[Dict[str, Any]]  # Papers from other scientific domains
+
+    # ============ IMPLEMENTATION RESEARCH (Innovation Mode - Phase 2) ============
+    implementation_analysis: Dict[str, Any]  # Analysis of how to implement experiments
+    implementation_search_queries: List[str]  # Queries for implementation literature
+    implementation_papers: List[Dict[str, Any]]  # Papers on implementation methods
+    implementation_report: str  # Detailed implementation guide
+    implementation_metadata: Dict[str, Any]  # Implementation report metadata
 
     # ============ CODE GENERATION PHASE ============
     code_specifications: List[Dict[str, Any]]  # Code requirements from plan
@@ -128,13 +141,18 @@ def create_initial_state(
     if requirements is None:
         requirements = {
             'depth': 'comprehensive',
-            'code_examples': True
+            'code_examples': True,
+            'report_mode': 'staff_ml_engineer'
         }
+
+    # Extract report mode from requirements
+    report_mode = requirements.get('report_mode', 'staff_ml_engineer')
 
     return {
         # Input
         'topic': topic,
         'requirements': requirements,
+        'report_mode': report_mode,
 
         # Planning
         'plan': {},
@@ -148,6 +166,18 @@ def create_initial_state(
         'key_findings': [],
         'literature_summary': '',
         'research_retry_count': 0,
+
+        # Cross-Domain Research (Innovation Mode)
+        'cross_domain_analysis': {},
+        'cross_domain_search_queries': [],
+        'cross_domain_papers': [],
+
+        # Implementation Research (Innovation Mode - Phase 2)
+        'implementation_analysis': {},
+        'implementation_search_queries': [],
+        'implementation_papers': [],
+        'implementation_report': '',
+        'implementation_metadata': {},
 
         # Code
         'code_specifications': [],

@@ -620,3 +620,211 @@ body {
 .report-item {
     animation: fadeIn 0.5s ease;
 }
+
+/* Live Progress Log Styles */
+.progress-log-container {
+    margin-top: 1.5rem;
+    background: var(--surface-light);
+    border-radius: 8px;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+}
+
+.progress-log-title {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--primary-color);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.progress-log {
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.75rem;
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    line-height: 1.7;
+    color: var(--text-primary);
+}
+
+.progress-log-entry {
+    padding: 0.5rem 0.6rem;
+    margin-bottom: 0.3rem;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    display: flex;
+    gap: 0.6rem;
+    align-items: flex-start;
+}
+
+.progress-log-entry:last-child {
+    margin-bottom: 0;
+}
+
+.log-timestamp {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-weight: 500;
+}
+
+.log-message {
+    flex: 1;
+    word-break: break-word;
+    color: var(--text-primary);
+}
+
+/* Event type colors - Dark theme compatible */
+.event-started {
+    background: rgba(33, 150, 243, 0.15);
+    border-left: 3px solid #2196f3;
+}
+
+.event-started .log-message {
+    color: #90caf9;
+}
+
+.event-completed {
+    background: rgba(76, 175, 80, 0.15);
+    border-left: 3px solid #4caf50;
+}
+
+.event-completed .log-message {
+    color: #a5d6a7;
+}
+
+.event-failed {
+    background: rgba(244, 67, 54, 0.15);
+    border-left: 3px solid #f44336;
+}
+
+.event-failed .log-message {
+    color: #ef9a9a;
+}
+
+.event-warning {
+    background: rgba(255, 152, 0, 0.15);
+    border-left: 3px solid #ff9800;
+}
+
+.event-warning .log-message {
+    color: #ffcc80;
+}
+
+.event-info {
+    background: rgba(156, 39, 176, 0.15);
+    border-left: 3px solid #9c27b0;
+}
+
+.event-info .log-message {
+    color: #ce93d8;
+}
+
+/* Phase separator styling */
+.phase-separator {
+    margin: 1.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.phase-separator-line {
+    flex: 1;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #9c27b0, transparent);
+    opacity: 0.5;
+}
+
+.phase-separator-content {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: linear-gradient(135deg, rgba(156, 39, 176, 0.2), rgba(103, 58, 183, 0.2));
+    border: 2px solid #9c27b0;
+    border-radius: 8px;
+    white-space: nowrap;
+}
+
+.phase-icon {
+    font-size: 1.2rem;
+    animation: pulse 2s infinite;
+}
+
+.phase-title {
+    font-weight: 600;
+    color: #ce93d8;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(1.1);
+    }
+}
+
+/* Phase complete styling */
+.phase-complete {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, rgba(76, 175, 80, 0.2), rgba(129, 199, 132, 0.2));
+    border: 1px solid #4caf50;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.phase-complete-icon {
+    font-size: 1.1rem;
+    animation: sparkle 1.5s ease-in-out;
+}
+
+.phase-complete-text {
+    color: #a5d6a7;
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+@keyframes sparkle {
+    0%, 100% {
+        opacity: 1;
+        transform: rotate(0deg) scale(1);
+    }
+    50% {
+        opacity: 0.8;
+        transform: rotate(180deg) scale(1.2);
+    }
+}
+
+/* Scroll styling - Dark theme */
+.progress-log::-webkit-scrollbar {
+    width: 8px;
+}
+
+.progress-log::-webkit-scrollbar-track {
+    background: var(--surface-light);
+    border-radius: 4px;
+}
+
+.progress-log::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+.progress-log::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}

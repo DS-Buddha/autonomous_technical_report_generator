@@ -9,15 +9,17 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import queue
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from main import generate_report
 from src.utils.logger import setup_logger
+from src.utils.progress_streamer import get_progress_streamer, ProgressEvent
 
 # Setup
 app = FastAPI(
@@ -48,6 +50,7 @@ class ReportRequest(BaseModel):
     depth: str = "comprehensive"
     code_examples: bool = True
     max_iterations: int = 3
+    report_mode: str = "staff_ml_engineer"
 
 
 class ReportStatus(BaseModel):
@@ -60,11 +63,78 @@ class ReportStatus(BaseModel):
 # Store for tracking report generation status
 report_jobs = {}
 
+# Store for SSE connections
+sse_queues = []
+
+# Get progress streamer singleton
+progress_streamer = get_progress_streamer(enable_console_output=True)
+
+# Subscribe to progress events and broadcast to SSE clients
+def broadcast_progress_event(event: ProgressEvent):
+    """Broadcast progress event to all SSE clients."""
+    event_data = event.to_json()
+
+    # Send to all connected SSE clients
+    dead_queues = []
+    for q in sse_queues:
+        try:
+            q.put_nowait(event_data)
+        except:
+            dead_queues.append(q)
+
+    # Clean up dead queues
+    for q in dead_queues:
+        if q in sse_queues:
+            sse_queues.remove(q)
+
+progress_streamer.subscribe(broadcast_progress_event)
+
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     """Render the main page."""
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/api/progress-stream")
+async def progress_stream(request: Request):
+    """
+    Server-Sent Events endpoint for real-time progress updates.
+    """
+    async def event_generator():
+        # Create a queue for this client
+        q = queue.Queue()
+        sse_queues.append(q)
+
+        try:
+            while True:
+                # Check if client is still connected
+                if await request.is_disconnected():
+                    break
+
+                # Try to get event from queue (non-blocking)
+                try:
+                    event_data = q.get_nowait()
+                    yield f"data: {event_data}\n\n"
+                except queue.Empty:
+                    # Send keepalive comment every 15 seconds
+                    yield ": keepalive\n\n"
+                    await asyncio.sleep(1)
+
+        finally:
+            # Clean up when client disconnects
+            if q in sse_queues:
+                sse_queues.remove(q)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @app.post("/api/generate", response_model=ReportStatus)
@@ -96,7 +166,8 @@ async def generate_report_api(report_request: ReportRequest):
                     report_request.topic,
                     report_request.depth,
                     report_request.code_examples,
-                    report_request.max_iterations
+                    report_request.max_iterations,
+                    report_request.report_mode
                 )
 
                 report_jobs[job_id].update({
@@ -266,17 +337,18 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    import sys
 
     print("=" * 60)
     print("Hybrid Agentic System - Web Interface")
     print("=" * 60)
-    print("\nStarting server on http://localhost:8000")
+    print("\nStarting server on http://localhost:8001")
     print("\nPress CTRL+C to stop the server\n")
 
+    # Use direct app object instead of string to avoid Windows compatibility issues
     uvicorn.run(
-        "app:app",
+        app,
         host="0.0.0.0",
-        port=8000,
-        reload=True,
+        port=8001,
         log_level="info"
     )

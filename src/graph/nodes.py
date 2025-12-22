@@ -10,6 +10,10 @@ from src.agents.coder_agent import CoderAgent
 from src.agents.tester_agent import TesterAgent
 from src.agents.critic_agent import CriticAgent
 from src.agents.synthesizer_agent import SynthesizerAgent
+from src.agents.cross_domain_analyst import CrossDomainAnalyst
+from src.agents.innovation_synthesizer import InnovationSynthesizer
+from src.agents.implementation_researcher import ImplementationResearcher
+from src.agents.implementation_synthesizer import ImplementationSynthesizer
 from src.memory.memory_manager import MemoryManager
 from src.graph.state import AgentState
 from src.utils.logger import get_logger
@@ -25,6 +29,10 @@ coder = CoderAgent()
 tester = TesterAgent()
 critic = CriticAgent()
 synthesizer = SynthesizerAgent()
+cross_domain_analyst = CrossDomainAnalyst()
+innovation_synthesizer = InnovationSynthesizer()
+implementation_researcher = ImplementationResearcher()
+implementation_synthesizer = ImplementationSynthesizer()
 memory = MemoryManager()
 
 
@@ -82,7 +90,7 @@ def researcher_node(state: AgentState) -> Dict[str, Any]:
         # Generate default queries from topic
         queries = [state['topic']]
 
-    streamer.start_agent("researcher", f"Searching {len(queries)} queries across arXiv and Semantic Scholar")
+    streamer.start_agent("researcher", f"Searching {len(queries)} queries on arXiv")
 
     try:
         result = researcher.run(queries=queries)
@@ -288,7 +296,7 @@ def synthesizer_node(state: AgentState) -> Dict[str, Any]:
         logger.info(f"Report generated: {output_path}")
 
         word_count = metadata.get('word_count', 0)
-        streamer.complete_agent("synthesizer", f"Report generated ({word_count} words) → {output_path}")
+        streamer.complete_agent("synthesizer", f"Report generated ({word_count} words) -> {output_path}")
     except Exception as e:
         streamer.fail_agent("synthesizer", str(e))
         raise
@@ -496,3 +504,293 @@ def state_compression_node(state: AgentState) -> Dict[str, Any]:
         logger.info(f"State compression complete: {compression_ratio:.1f}% size reduction")
 
     return compressed
+
+
+def cross_domain_analyst_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Cross-Domain Analyst node: Identify parallels across scientific fields.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        State updates with cross-domain analysis and search queries
+    """
+    logger.info("=== CROSS-DOMAIN ANALYST NODE ===")
+    streamer.start_agent("cross_domain_analyst", "Identifying cross-domain parallels")
+
+    try:
+        result = cross_domain_analyst.run(state=state)
+
+        analysis = result.get('cross_domain_analysis', {})
+        parallels = analysis.get('cross_domain_parallels', [])
+        search_queries = result.get('cross_domain_search_queries', [])
+
+        streamer.complete_agent(
+            "cross_domain_analyst",
+            f"Identified {len(parallels)} parallels, generated {len(search_queries)} search queries"
+        )
+    except Exception as e:
+        streamer.fail_agent("cross_domain_analyst", str(e))
+        raise
+
+    return {
+        'cross_domain_analysis': result.get('cross_domain_analysis', {}),
+        'cross_domain_search_queries': result.get('cross_domain_search_queries', []),
+        'messages': result.get('messages', []),
+        'status': 'cross_domain_analysis_complete'
+    }
+
+
+def cross_domain_researcher_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Cross-Domain Researcher node: Search literature from other scientific fields.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        State updates with cross-domain research papers
+    """
+    logger.info("=== CROSS-DOMAIN RESEARCHER NODE ===")
+
+    # Get cross-domain search queries and parallels
+    queries = state.get('cross_domain_search_queries', [])
+    parallels = state.get('cross_domain_analysis', {}).get('cross_domain_parallels', [])
+
+    if not queries:
+        logger.warning("No cross-domain queries available, skipping")
+        return {
+            'cross_domain_papers': [],
+            'messages': [{'role': 'assistant', 'content': "CrossDomainResearcher: No queries provided"}],
+            'status': 'cross_domain_research_skipped'
+        }
+
+    streamer.start_agent("cross_domain_researcher", f"Searching {len(queries)} cross-domain queries")
+
+    try:
+        result = researcher.run_cross_domain(
+            cross_domain_queries=queries,
+            parallels=parallels
+        )
+
+        papers_count = len(result.get('cross_domain_papers', []))
+        streamer.complete_agent(
+            "cross_domain_researcher",
+            f"Found {papers_count} cross-domain papers"
+        )
+    except Exception as e:
+        streamer.fail_agent("cross_domain_researcher", str(e))
+        raise
+
+    return {
+        'cross_domain_papers': result.get('cross_domain_papers', []),
+        'messages': [{'role': 'assistant', 'content': f"CrossDomainResearcher: Found {len(result.get('cross_domain_papers', []))} papers"}],
+        'status': 'cross_domain_research_complete'
+    }
+
+
+def innovation_synthesizer_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Innovation Synthesizer node: Create comprehensive innovation report.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        State updates with final innovation report
+    """
+    logger.info("=== INNOVATION SYNTHESIZER NODE ===")
+    streamer.start_agent("innovation_synthesizer", "Synthesizing cross-domain innovation report")
+
+    try:
+        result = innovation_synthesizer.run(state=state)
+
+        final_report = result.get('final_report', '')
+        metadata = result.get('report_metadata', {})
+
+        # Save report to file
+        from src.tools.file_tools import FileTools
+        file_tools = FileTools()
+        output_path = file_tools.save_markdown_report(
+            content=final_report,
+            topic=state['topic']
+        )
+
+        metadata['output_path'] = str(output_path)
+
+        logger.info(f"Innovation report generated: {output_path}")
+
+        word_count = metadata.get('word_count', 0)
+        parallels = metadata.get('parallels_analyzed', 0)
+        streamer.complete_agent(
+            "innovation_synthesizer",
+            f"Report generated ({word_count} words, {parallels} parallels) -> {output_path}"
+        )
+
+        # Signal Phase 1 completion
+        streamer.complete_phase(
+            "Phase 1: Cross-Domain Innovation",
+            f"Generated innovation report with {parallels} cross-domain parallels identified"
+        )
+
+    except Exception as e:
+        streamer.fail_agent("innovation_synthesizer", str(e))
+        raise
+
+    return {
+        'final_report': final_report,
+        'report_metadata': metadata,
+        'messages': [{'role': 'assistant', 'content': f"InnovationSynthesizer: Generated report ({metadata.get('word_count', 0)} words)"}],
+        'status': 'innovation_synthesis_complete'
+    }
+
+
+def implementation_researcher_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Implementation Researcher node: Analyze experiments and research implementations.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        State updates with implementation analysis
+    """
+    logger.info("=== IMPLEMENTATION RESEARCHER NODE ===")
+
+    # Signal Phase 2 start
+    streamer.start_phase(
+        "Phase 2: Implementation Research",
+        "Deep-dive analysis of publishable implementations for each experiment"
+    )
+
+    streamer.start_agent("implementation_researcher", "Analyzing proposed experiments for implementation")
+
+    try:
+        result = implementation_researcher.run(state=state)
+
+        analysis = result.get('implementation_analysis', {})
+        experiments = analysis.get('experiments_analysis', [])
+        queries = result.get('implementation_search_queries', [])
+
+        streamer.complete_agent(
+            "implementation_researcher",
+            f"Analyzed {len(experiments)} experiments, generated {len(queries)} queries"
+        )
+    except Exception as e:
+        streamer.fail_agent("implementation_researcher", str(e))
+        raise
+
+    return {
+        'implementation_analysis': result.get('implementation_analysis', {}),
+        'implementation_search_queries': result.get('implementation_search_queries', []),
+        'messages': result.get('messages', []),
+        'status': 'implementation_analysis_complete'
+    }
+
+
+def implementation_literature_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Implementation Literature node: Deep research on how to implement experiments.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        State updates with implementation papers
+    """
+    logger.info("=== IMPLEMENTATION LITERATURE NODE ===")
+
+    # Get implementation search queries
+    queries = state.get('implementation_search_queries', [])
+
+    if not queries:
+        logger.warning("No implementation queries available, skipping")
+        return {
+            'implementation_papers': [],
+            'messages': [{'role': 'assistant', 'content': "ImplementationLiterature: No queries provided"}],
+            'status': 'implementation_literature_skipped'
+        }
+
+    streamer.start_agent("implementation_literature", f"Searching {len(queries)} implementation queries")
+
+    try:
+        # Use regular researcher for implementation papers
+        result = researcher.run(queries=queries)
+
+        # Rename papers to implementation_papers
+        papers = result.get('research_papers', [])
+
+        streamer.complete_agent(
+            "implementation_literature",
+            f"Found {len(papers)} implementation papers"
+        )
+    except Exception as e:
+        streamer.fail_agent("implementation_literature", str(e))
+        raise
+
+    return {
+        'implementation_papers': papers,
+        'messages': [{'role': 'assistant', 'content': f"ImplementationLiterature: Found {len(papers)} papers"}],
+        'status': 'implementation_literature_complete'
+    }
+
+
+def implementation_synthesizer_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Implementation Synthesizer node: Generate detailed implementation report.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        State updates with implementation report
+    """
+    logger.info("=== IMPLEMENTATION SYNTHESIZER NODE ===")
+    streamer.start_agent("implementation_synthesizer", "Generating detailed implementation report")
+
+    try:
+        result = implementation_synthesizer.run(state=state)
+
+        implementation_report = result.get('implementation_report', '')
+        metadata = result.get('implementation_metadata', {})
+
+        # Save implementation report to file
+        from src.tools.file_tools import FileTools
+        file_tools = FileTools()
+
+        # Create special filename for implementation report
+        topic = state['topic']
+        filename = f"{file_tools._sanitize_filename(topic)}_IMPLEMENTATION.md"
+        output_path = file_tools.save_markdown_report(
+            content=implementation_report,
+            topic=filename.replace('.md', '')  # Remove .md as it's added by save function
+        )
+
+        metadata['output_path'] = str(output_path)
+
+        logger.info(f"Implementation report generated: {output_path}")
+
+        word_count = metadata.get('word_count', 0)
+        experiments = metadata.get('experiments_analyzed', 0)
+        streamer.complete_agent(
+            "implementation_synthesizer",
+            f"Report generated ({word_count} words, {experiments} experiments) -> {output_path}"
+        )
+
+        # Signal Phase 2 completion
+        streamer.complete_phase(
+            "Phase 2: Implementation Research",
+            f"Generated detailed implementation report with {experiments} experiments analyzed"
+        )
+
+    except Exception as e:
+        streamer.fail_agent("implementation_synthesizer", str(e))
+        raise
+
+    return {
+        'implementation_report': implementation_report,
+        'implementation_metadata': metadata,
+        'messages': [{'role': 'assistant', 'content': f"ImplementationSynthesizer: Generated report ({metadata.get('word_count', 0)} words)"}],
+        'status': 'implementation_complete'
+    }

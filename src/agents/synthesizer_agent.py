@@ -4,7 +4,7 @@ Synthesizer agent for final report generation.
 
 from typing import Dict, List
 from src.agents.base_agent import BaseAgent
-from src.config.prompts import SYNTHESIZER_PROMPT
+from src.config.prompts import SYNTHESIZER_PROMPT, RESEARCH_INNOVATION_PROMPT
 from src.tools.file_tools import FileTools
 from src.utils.logger import get_logger
 
@@ -14,19 +14,25 @@ logger = get_logger(__name__)
 class SynthesizerAgent(BaseAgent):
     """
     Synthesizer agent that creates comprehensive markdown reports.
+    Supports multiple report modes.
     """
 
     def __init__(self):
         super().__init__(
             name="Synthesizer",
-            system_prompt=SYNTHESIZER_PROMPT,
+            system_prompt=SYNTHESIZER_PROMPT,  # Default prompt
             temperature=0.6
         )
         self.file_tools = FileTools()
+        self.prompts = {
+            'staff_ml_engineer': SYNTHESIZER_PROMPT,
+            'research_innovation': RESEARCH_INNOVATION_PROMPT
+        }
 
     def run(self, state: Dict, **kwargs) -> Dict:
         """
-        Synthesize all outputs into a final report.
+        Synthesize all outputs into a comprehensive report.
+        Supports multiple report modes.
 
         Args:
             state: Workflow state with all outputs
@@ -34,137 +40,140 @@ class SynthesizerAgent(BaseAgent):
         Returns:
             Dict with final_report and metadata
         """
-        logger.info("Synthesizing final report")
-
         # Extract components from state
         topic = state.get('topic', 'Technical Report')
         findings = state.get('key_findings', [])
-        code_blocks = state.get('executable_code', {})
+        research_papers = state.get('research_papers', [])
+        code_blocks = state.get('executable_code', {}) or state.get('generated_code', {})
         lit_summary = state.get('literature_summary', '')
+        quality_scores = state.get('quality_scores', {})
+        report_mode = state.get('report_mode', 'staff_ml_engineer')
 
-        # Generate report sections
-        report_parts = []
+        # Select appropriate prompt based on mode
+        selected_prompt = self.prompts.get(report_mode, SYNTHESIZER_PROMPT)
+        self.system_prompt = selected_prompt
 
-        # Metadata header
-        report_parts.append(self.file_tools.add_metadata_header(
-            topic,
-            metadata={
-                'papers_reviewed': len(state.get('research_papers', [])),
-                'code_examples': len(code_blocks),
-                'quality_score': state.get('quality_scores', {}).get('overall', 'N/A')
-            }
-        ))
+        logger.info(f"Synthesizing report in '{report_mode}' mode")
 
-        # Title and abstract
-        report_parts.append(f"# {topic}\n\n")
-        report_parts.append(self._generate_abstract(topic, findings))
+        # Build mode-specific context prompt
+        if report_mode == 'research_innovation':
+            context_prompt = self._build_innovation_context(
+                topic, research_papers, findings, lit_summary, code_blocks
+            )
+        else:  # staff_ml_engineer
+            context_prompt = self._build_mentoring_context(
+                topic, research_papers, findings, lit_summary, code_blocks
+            )
 
-        # Introduction
-        report_parts.append(self._generate_section("Introduction", topic, lit_summary))
-
-        # Literature Review
-        report_parts.append(self._generate_literature_review(findings))
-
-        # Implementation
-        if code_blocks:
-            report_parts.append(self._generate_implementation_section(code_blocks, state))
-
-        # Conclusion
-        report_parts.append(self._generate_conclusion(topic, findings))
-
-        # References
-        report_parts.append(self.file_tools.format_reference_list(findings))
-
-        # Combine report
-        final_report = '\n'.join(report_parts)
+        # Generate the complete report using the LLM
+        logger.info(f"Generating {report_mode} report with LLM")
+        final_report = self.generate_response(context_prompt)
 
         # Calculate metadata
         metadata = {
             'word_count': len(final_report.split()),
             'code_blocks': len(code_blocks),
-            'references': len(findings),
-            'sections': 6
+            'references': len(research_papers),
+            'format': report_mode,
+            'quality_score': quality_scores.get('overall', 'N/A')
         }
 
-        logger.info(f"Report generated: {metadata['word_count']} words, {metadata['code_blocks']} code examples")
+        logger.info(
+            f"Report generated: {metadata['word_count']} words, "
+            f"{metadata['references']} papers, {metadata['code_blocks']} code examples"
+        )
 
         return {
             'final_report': final_report,
             'report_metadata': metadata
         }
 
-    def _generate_abstract(self, topic: str, findings: List[Dict]) -> str:
-        """Generate abstract section."""
-        prompt = f"""
-Write a technical abstract (150-200 words) for a report on: {topic}
+    def _build_mentoring_context(self, topic, research_papers, findings, lit_summary, code_blocks):
+        """Build context prompt for Staff ML Engineer mentoring mode."""
+        return f"""
+Create a Staff ML Engineer mentoring report on: {topic}
 
-Based on these research findings:
-{self._format_findings_brief(findings[:5])}
+Research Papers Reviewed ({len(research_papers)} papers):
+{self._format_papers_for_context(research_papers[:10])}
 
-The abstract should summarize the topic, approach, and key insights.
+Key Research Findings:
+{self._format_findings_for_context(findings[:8])}
+
+Literature Summary Context:
+{lit_summary[:1000] if lit_summary else 'No summary available'}
+
+Code Examples Available:
+{list(code_blocks.keys()) if code_blocks else ['No code examples - focus on conceptual/architectural guidance']}
+
+Your Task:
+Write a comprehensive, production-focused mentoring report following the Staff ML Engineer format.
+Focus on:
+1. Common mistakes senior engineers make with this topic
+2. How these mistakes fail in production (real symptoms, detection times, impact)
+3. Production-grade fixes with code examples (use the code blocks provided as a starting point, but enhance them)
+4. Preventive design principles and checklists
+5. Hard-won lessons and war stories
+
+The report should help senior engineers avoid production pitfalls.
 """
-        abstract = self.generate_response(prompt)
-        return f"## Abstract\n\n{abstract}\n\n"
 
-    def _generate_section(self, title: str, topic: str, context: str) -> str:
-        """Generate a report section."""
-        prompt = f"""
-Write a {title} section (300-400 words) for a technical report on: {topic}
+    def _build_innovation_context(self, topic, research_papers, findings, lit_summary, code_blocks):
+        """Build context prompt for Research Innovation mode."""
+        return f"""
+Create a Research Innovation report on: {topic}
 
-Context: {context[:500]}
+Research Papers Reviewed ({len(research_papers)} papers):
+{self._format_papers_for_context(research_papers[:10])}
 
-Make it informative and well-structured.
+Key Research Findings:
+{self._format_findings_for_context(findings[:8])}
+
+Literature Summary Context:
+{lit_summary[:1500] if lit_summary else 'No summary available'}
+
+Code Examples Available:
+{list(code_blocks.keys()) if code_blocks else ['No code examples available']}
+
+Your Task:
+Analyze the current research and generate novel research directions by drawing parallels with:
+1. Neuroscience (neural networks, learning mechanisms, memory systems)
+2. Quantum Physics (superposition, entanglement, uncertainty principles)
+3. Biology (evolutionary algorithms, immune systems, cellular processes)
+4. Complex Systems Theory (emergence, self-organization, network effects)
+5. Other relevant scientific domains
+
+Focus on:
+1. Identifying deep parallels between {topic} and phenomena from other fields
+2. Proposing novel research questions inspired by cross-domain insights
+3. Suggesting concrete experiments to test these ideas
+4. Explaining how these directions could advance the field
+5. Being rigorous about where analogies hold and where they break down
+
+Generate actionable, bold research directions that could open new avenues of investigation.
 """
-        content = self.generate_response(prompt)
-        return f"## {title}\n\n{content}\n\n"
 
-    def _generate_literature_review(self, findings: List[Dict]) -> str:
-        """Generate literature review section."""
-        review_parts = ["## Literature Review\n\n"]
+    def _format_papers_for_context(self, papers: List[Dict]) -> str:
+        """Format papers for LLM context."""
+        formatted = []
+        for i, paper in enumerate(papers, 1):
+            title = paper.get('title', 'Untitled')
+            authors = ', '.join(paper.get('authors', [])[:3])
+            year = paper.get('year', 'n.d.')
+            abstract = paper.get('abstract', '')[:300]
 
-        for i, finding in enumerate(findings[:5], 1):
-            title = finding.get('title', 'Untitled')
-            authors = ', '.join(finding.get('authors', [])[:2])
-            year = finding.get('year', 'n.d.')
-            abstract = finding.get('abstract', '')[:300]
-
-            review_parts.append(f"### {i}. {title}\n\n")
-            review_parts.append(f"**Authors:** {authors} ({year})\n\n")
-            review_parts.append(f"{abstract}...\n\n")
-
-        return ''.join(review_parts)
-
-    def _generate_implementation_section(self, code_blocks: Dict, state: Dict) -> str:
-        """Generate implementation section with code."""
-        impl_parts = ["## Implementation\n\n"]
-
-        for code_id, code in list(code_blocks.items())[:3]:  # Max 3 examples
-            # Get specification description if available
-            specs = state.get('code_specifications', [])
-            description = next(
-                (s['description'] for s in specs if s.get('id') == code_id),
-                "Implementation example"
+            formatted.append(
+                f"{i}. {title}\n"
+                f"   Authors: {authors} ({year})\n"
+                f"   Abstract: {abstract}...\n"
             )
+        return '\n'.join(formatted)
 
-            impl_parts.append(f"### {description}\n\n")
-            impl_parts.append(self.file_tools.format_code_block(code, 'python'))
+    def _format_findings_for_context(self, findings: List[Dict]) -> str:
+        """Format findings for LLM context."""
+        formatted = []
+        for i, finding in enumerate(findings, 1):
+            title = finding.get('title', 'Untitled')
+            summary = finding.get('summary', finding.get('abstract', ''))[:200]
+            formatted.append(f"{i}. {title}\n   Key insight: {summary}...")
+        return '\n'.join(formatted)
 
-        return ''.join(impl_parts)
-
-    def _generate_conclusion(self, topic: str, findings: List[Dict]) -> str:
-        """Generate conclusion section."""
-        prompt = f"""
-Write a conclusion (200-250 words) for a technical report on: {topic}
-
-Summarize key takeaways and suggest future directions.
-Base it on {len(findings)} research papers reviewed.
-"""
-        conclusion = self.generate_response(prompt)
-        return f"## Conclusion\n\n{conclusion}\n\n"
-
-    def _format_findings_brief(self, findings: List[Dict]) -> str:
-        """Format findings briefly for prompts."""
-        return '\n'.join([
-            f"- {f.get('title', 'Untitled')} ({f.get('year', 'n.d.')})"
-            for f in findings
-        ])

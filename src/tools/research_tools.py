@@ -177,7 +177,7 @@ class ResearchTools:
         limit: int = 10
     ) -> List[Dict]:
         """
-        Search Semantic Scholar API for papers.
+        Search Semantic Scholar API for papers with timeout.
 
         Args:
             query: Search query string
@@ -189,13 +189,22 @@ class ResearchTools:
         logger.info(f"Searching Semantic Scholar for: '{query}' (max {limit} results)")
 
         try:
-            results = self.s2_client.search_paper(
-                query,
-                limit=limit,
-                fields=['title', 'abstract', 'authors', 'year', 'citationCount',
-                       'url', 'venue', 'publicationTypes', 'publicationDate',
-                       'externalIds', 'influentialCitationCount']
-            )
+            # Wrap in async timeout to prevent hanging (15 second timeout)
+            async def do_search():
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(
+                    None,
+                    lambda: self.s2_client.search_paper(
+                        query,
+                        limit=limit,
+                        fields=['title', 'abstract', 'authors', 'year', 'citationCount',
+                               'url', 'venue', 'publicationTypes', 'publicationDate',
+                               'externalIds', 'influentialCitationCount']
+                    )
+                )
+
+            # Add timeout of 5 seconds (fast-fail for slow API)
+            results = await asyncio.wait_for(do_search(), timeout=5.0)
 
             papers = []
             for paper in results:
@@ -218,9 +227,12 @@ class ResearchTools:
             logger.info(f"Found {len(papers)} papers on Semantic Scholar")
             return papers
 
+        except asyncio.TimeoutError:
+            logger.warning(f"Semantic Scholar search timed out for query: '{query}' - skipping")
+            return []  # Return empty list on timeout
         except Exception as e:
             logger.error(f"Semantic Scholar search error: {e}")
-            raise
+            return []  # Return empty list on error instead of crashing
 
     async def parallel_search(
         self,
@@ -237,25 +249,25 @@ class ResearchTools:
         Returns:
             Dict with 'arxiv' and 'semantic_scholar' keys containing results
         """
-        logger.info(f"Starting parallel search for {len(queries)} queries")
+        logger.info(f"Starting parallel search for {len(queries)} queries (arXiv only - S2 disabled due to performance)")
 
-        # Create tasks for parallel execution
+        # Create tasks for parallel execution (arXiv only)
         arxiv_tasks = [
             self.search_arxiv(q, max_results=max_results_per_query)
             for q in queries
         ]
-        s2_tasks = [
-            self.search_semantic_scholar(q, limit=max_results_per_query)
-            for q in queries
-        ]
 
-        # Execute in parallel
-        all_tasks = arxiv_tasks + s2_tasks
-        results = await asyncio.gather(*all_tasks, return_exceptions=True)
+        # DISABLED: Semantic Scholar is too slow/unreliable
+        # s2_tasks = [
+        #     self.search_semantic_scholar(q, limit=max_results_per_query)
+        #     for q in queries
+        # ]
 
-        # Separate results
-        arxiv_results = results[:len(queries)]
-        s2_results = results[len(queries):]
+        # Execute arXiv searches in parallel
+        arxiv_results = await asyncio.gather(*arxiv_tasks, return_exceptions=True)
+
+        # No S2 results
+        s2_results = [[] for _ in queries]
 
         # Combine results by query
         combined = {

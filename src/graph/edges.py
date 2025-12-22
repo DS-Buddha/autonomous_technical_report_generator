@@ -38,19 +38,23 @@ def should_test_code(state: AgentState) -> str:
     """
     Determine if code needs fixes or can proceed.
 
+    MODIFIED: Always proceed to review regardless of test results.
+    Focus is on learning from research, not perfect code.
+
     Args:
         state: Current workflow state
 
     Returns:
-        "fix_code" or "review"
+        "review" (always - we accept code even with failures)
     """
     errors = state.get('validation_errors', [])
 
     if errors:
-        logger.info(f"{len(errors)} validation errors found - fixing code")
-        return "fix_code"
+        logger.info(f"{len(errors)} validation errors found - proceeding anyway (learning focus)")
+    else:
+        logger.info("No validation errors - proceeding to review")
 
-    logger.info("No validation errors - proceeding to review")
+    # ALWAYS proceed to review - we're building educational reports, not production code
     return "review"
 
 
@@ -58,11 +62,14 @@ def should_revise(state: AgentState) -> str:
     """
     Determine what needs revision based on critic feedback.
 
+    MODIFIED: Only revise research, NEVER revise code.
+    Focus is on learning from existing research, code is for illustration only.
+
     Args:
         state: Current workflow state
 
     Returns:
-        "revise_research", "revise_code", or "synthesize"
+        "revise_research" or "synthesize" (never "revise_code")
     """
     iteration_count = state.get('iteration_count', 0)
     max_iterations = state.get('max_iterations', 3)
@@ -92,15 +99,14 @@ def should_revise(state: AgentState) -> str:
 
     logger.info(f"Lowest score: {lowest_dimension}={lowest_score:.1f}")
 
-    # Route based on dimension
+    # CRITICAL CHANGE: Only revise research, NEVER code
+    # Code is illustrative only - we accept it as-is
     if lowest_dimension in ['accuracy', 'completeness']:
         logger.info("Routing to research revision")
         return "revise_research"
-    elif lowest_dimension in ['code_quality', 'executability']:
-        logger.info("Routing to code revision")
-        return "revise_code"
     else:
-        logger.info("Routing to synthesis")
+        # For code quality or other issues, just proceed to synthesis
+        logger.info(f"Ignoring {lowest_dimension} issues - proceeding to synthesis (learning focus)")
         return "synthesize"
 
 
