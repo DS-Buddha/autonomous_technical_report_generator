@@ -1,12 +1,18 @@
 """
 Code execution and validation tools.
+
 Provides safe code execution, syntax checking, and formatting.
+
+Supports TWO execution modes:
+1. Synchronous (subprocess): Fast, for simple/trusted code
+2. Asynchronous (Celery): Production-grade, for untrusted/complex code
 """
 
 import ast
 import subprocess
 import tempfile
 import sys
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import black
@@ -16,6 +22,16 @@ from src.config.settings import settings
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Try importing async execution (graceful degradation if Celery not available)
+ASYNC_AVAILABLE = False
+try:
+    from src.tasks.code_execution_tasks import execute_code_async
+    ASYNC_AVAILABLE = True
+    logger.info("Async code execution (Celery) is available")
+except ImportError:
+    logger.warning("Celery not available - async execution disabled. Install: pip install celery redis")
+    execute_code_async = None
 
 
 class CodeTools:
@@ -56,14 +72,22 @@ class CodeTools:
     @staticmethod
     def execute_code(
         code: str,
-        timeout: int = None
+        timeout: int = None,
+        async_mode: bool = False,
+        wait_for_result: bool = True
     ) -> Dict:
         """
-        Execute Python code in an isolated temporary environment.
+        Execute Python code in an isolated environment.
+
+        Supports TWO modes:
+        1. Synchronous (async_mode=False): Direct subprocess execution
+        2. Asynchronous (async_mode=True): Celery worker execution
 
         Args:
             code: Python code to execute
             timeout: Execution timeout in seconds (default from settings)
+            async_mode: Use Celery workers for production-grade isolation
+            wait_for_result: If async, whether to block and wait for result
 
         Returns:
             Dict with execution results:
@@ -71,10 +95,40 @@ class CodeTools:
             - stdout: str
             - stderr: str
             - returncode: int
+            - task_id: str (if async_mode=True)
+            - execution_time_ms: int (if async_mode=True)
+
+        Production Note:
+            Use async_mode=True for:
+            - User-generated code (untrusted)
+            - Long-running operations
+            - High-concurrency scenarios
+            Use async_mode=False for:
+            - System-generated code (trusted)
+            - Simple/quick operations
+            - Development/testing
         """
         timeout = timeout or settings.code_execution_timeout
 
-        logger.info("Executing code in isolated environment")
+        # Route to async execution if enabled
+        if async_mode and ASYNC_AVAILABLE:
+            return CodeTools._execute_async(code, timeout, wait_for_result)
+
+        # Fallback to synchronous execution
+        if async_mode and not ASYNC_AVAILABLE:
+            logger.warning("Async mode requested but Celery not available. Falling back to sync execution.")
+
+        return CodeTools._execute_sync(code, timeout)
+
+    @staticmethod
+    def _execute_sync(code: str, timeout: int) -> Dict:
+        """
+        Execute code synchronously using subprocess.
+
+        LEGACY MODE: Use for trusted, simple code only.
+        For production, use _execute_async() instead.
+        """
+        logger.info("Executing code in SYNC mode (subprocess)")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
@@ -131,6 +185,95 @@ class CodeTools:
                     'stderr': f'Execution error: {str(e)}',
                     'returncode': -1
                 }
+
+    @staticmethod
+    def _execute_async(code: str, timeout: int, wait_for_result: bool = True) -> Dict:
+        """
+        Execute code asynchronously using Celery workers.
+
+        PRODUCTION MODE: Provides proper isolation, retries, monitoring.
+
+        Args:
+            code: Python code to execute
+            timeout: Execution timeout in seconds
+            wait_for_result: Whether to block and wait for task completion
+
+        Returns:
+            Execution result dict (if wait_for_result=True)
+            or task info dict (if wait_for_result=False)
+        """
+        logger.info("Executing code in ASYNC mode (Celery worker)")
+
+        try:
+            # Submit task to Celery
+            task = execute_code_async.delay(code, timeout=timeout)
+
+            if not wait_for_result:
+                # Return immediately with task ID
+                logger.info(f"Task submitted: {task.id}")
+                return {
+                    'success': None,  # Unknown until task completes
+                    'task_id': task.id,
+                    'status': 'submitted',
+                    'message': 'Task submitted to worker. Use get_task_result() to check status.'
+                }
+
+            # Wait for task to complete
+            logger.info(f"Waiting for task {task.id} to complete...")
+            result = task.get(timeout=timeout + 30)  # Add buffer for worker overhead
+
+            logger.info(
+                f"Task {task.id} completed: success={result['success']}, "
+                f"time={result.get('execution_time_ms', 'N/A')}ms"
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Async execution error: {e}", exc_info=True)
+            return {
+                'success': False,
+                'stdout': '',
+                'stderr': f'Async execution error: {str(e)}',
+                'returncode': -1,
+                'task_id': None
+            }
+
+    @staticmethod
+    def get_task_result(task_id: str, timeout: int = 30) -> Optional[Dict]:
+        """
+        Retrieve result of an async task by task ID.
+
+        Args:
+            task_id: Celery task ID
+            timeout: How long to wait for result (seconds)
+
+        Returns:
+            Execution result dict or None if not found/timed out
+        """
+        if not ASYNC_AVAILABLE:
+            logger.error("Async execution not available")
+            return None
+
+        try:
+            from celery.result import AsyncResult
+            task = AsyncResult(task_id)
+
+            if task.ready():
+                result = task.get(timeout=timeout)
+                logger.info(f"Retrieved result for task {task_id}")
+                return result
+            else:
+                logger.info(f"Task {task_id} is still pending")
+                return {
+                    'status': 'pending',
+                    'task_id': task_id,
+                    'message': 'Task is still running'
+                }
+
+        except Exception as e:
+            logger.error(f"Error retrieving task result: {e}")
+            return None
 
     @staticmethod
     def format_code(code: str) -> str:
